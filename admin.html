@@ -50,6 +50,15 @@ table.lista td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
 .conversa form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 14px 14px}
 .conversa form input{border:0}
 .conversa form button{font:600 15px/1 var(--titulo);background:#E5662C;color:#1B1512;border:0;border-radius:4px;padding:0 16px;cursor:pointer}
+.alerta-global{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;background:#8F2A19;color:#fff;border-radius:6px;padding:14px 18px;margin:0 0 22px}
+.alerta-global[data-nivel="atencao"]{background:#1B1512}
+.alerta-global p{margin:0;font:500 18px/1.4 var(--titulo);flex:1 1 420px}
+.alerta-global .botao{background:#fff;color:#1B1512}
+.consumo{width:100%;border-collapse:collapse;margin:8px 0 4px}
+.consumo th,.consumo td{text-align:left;padding:10px 12px;border-bottom:1px solid rgba(27,21,18,.16);font-size:17px;vertical-align:top}
+.consumo th{font:600 14px/1.3 var(--titulo);letter-spacing:.06em;text-transform:uppercase}
+.consumo td.n,.consumo th.n{text-align:right;white-space:nowrap}
+.consumo tfoot td{font:600 19px/1.3 var(--titulo);border-bottom:0}
 .aviso-topo{background:var(--papel);border-left:5px solid var(--ouro);padding:12px 16px;margin:0 0 20px;font-size:17px}
 code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#fff;border:1px solid var(--linha);border-radius:4px;padding:6px 8px;display:inline-block;overflow-wrap:anywhere;-webkit-user-select:all;user-select:all}
 </style>
@@ -65,6 +74,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
       <button class="botao sec menor" type="button" id="sair">Sair</button>
     </nav>
   </header>
+  <div class="alerta-global" id="alerta-global" role="alert" hidden><p id="alerta-texto"></p><button class="botao menor" type="button" id="alerta-config">Abrir as configurações</button></div>
   <main id="conteudo"></main>
 </div>
 <div class="conversa" id="conversa" hidden>
@@ -112,6 +122,19 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
   function marcar(rotulo, entrada) { var id = entrada.id || (entrada.id = "c" + Math.random().toString(36).slice(2, 8)); return h("label", { class: "marcar", for: id }, [entrada, h("span", { text: rotulo })]); }
   function status(texto, erro) { return h("p", { class: erro ? "alerta" : "nota", role: "status", text: texto || "", style: "margin:0" }); }
   function copiar(texto, botao) { navigator.clipboard.writeText(texto).then(function () { var t = botao.textContent; botao.textContent = "Copiado"; setTimeout(function () { botao.textContent = t; }, 1500); }, function () { botao.textContent = "Cópia não permitida pelo navegador"; }); }
+  /* Situação do consumo, exibida no topo de todas as telas. */
+  var dolar = function (v) { return "US$ " + Number(v || 0).toFixed(2).replace(".", ","); };
+  function atualizarAlerta(a) {
+    var caixa = document.getElementById("alerta-global"), t = document.getElementById("alerta-texto");
+    if (!a || (a.estado === "normal" && !a.limiteDiario)) { caixa.hidden = true; return; }
+    caixa.hidden = false; caixa.setAttribute("data-nivel", a.estado === "contencao" || a.limiteDiario ? "contencao" : "atencao");
+    t.textContent = a.estado === "contencao" ? "Teto de gasto atingido: consumo estimado de " + dolar(a.total) + ", com teto de " + dolar(a.teto) + ". O servidor deixou de armazenar gravações e de abrir novas sessões."
+      : a.limiteDiario ? "Limite diário do plano gratuito da Cloudflare próximo. Novas sessões ficam suspensas até a virada do dia."
+      : "Consumo estimado em " + a.pct + "% do teto de gasto (" + dolar(a.total) + " de " + dolar(a.teto) + ").";
+  }
+  document.getElementById("alerta-config").addEventListener("click", function () { ir("config"); });
+  function conferirAlerta() { api("GET", "/api/admin/eu").then(function (d) { atualizarAlerta(d.alerta); }, function () {}); }
+  setInterval(function () { if (!document.getElementById("menu").hidden) conferirAlerta(); }, 60000);
   function menu(vista) {
     document.getElementById("menu").hidden = false;
     Array.prototype.forEach.call(document.querySelectorAll("#menu [data-vista]"), function (b) { if (b.getAttribute("data-vista") === vista) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
@@ -335,7 +358,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
       raiz.appendChild(resumo); raiz.appendChild(vazio); raiz.appendChild(grade);
       function atualizar() {
         api("GET", "/api/admin/ao-vivo" + (provaAtual ? "?prova=" + provaAtual : "")).then(function (d) {
-          vazio.hidden = d.sessoes.length > 0;
+          vazio.hidden = d.sessoes.length > 0; atualizarAlerta(d.alerta);
           var ativos = {}, bloqueadas = 0, semSinal = 0, mensagens = 0;
           d.sessoes.forEach(function (s) { ativos[s.id] = 1; if (s.bloqueada && s.estado !== "encerrada") bloqueadas++; if (s.semSinalMs > 20000) semSinal++; mensagens += s.naoLidas; atualizarCartao(grade, s, d.agora); });
           Object.keys(cartoes).forEach(function (id) { if (!ativos[id]) { cartoes[id].el.remove(); delete cartoes[id]; } });
@@ -502,7 +525,11 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
     api("GET", "/api/admin/config").then(function (c) {
       var retorno = h("input", { type: "text", value: c.pioniraWebhook, placeholder: "https://" }), dias = h("input", { type: "number", min: "0", max: "3650", value: c.retencaoDias }), aviso = status("");
       var chave = h("code", { class: "chave", text: c.chaveIntegracao }), bc = h("button", { class: "botao sec menor", type: "button", text: "Copiar a chave", onclick: function () { copiar(chave.textContent, bc); } });
-      var salvar = function (extra) { return api("PUT", "/api/admin/config", Object.assign({ pioniraWebhook: retorno.value, retencaoDias: Number(dias.value) }, extra || {})).then(function (n) { chave.textContent = n.chaveIntegracao; aviso.className = "nota"; aviso.textContent = "Configurações salvas."; }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); };
+      var teto = h("input", { type: "number", min: "0", max: "100000", step: "1", value: c.tetoGastoUSD }), plano = h("select", null, [h("option", { value: "gratuito", text: "Workers Free (sem mensalidade)" }), h("option", { value: "pago", text: "Workers Paid (US$ 5 por mês)" })]);
+      var cicloDia = h("input", { type: "number", min: "1", max: "28", value: c.cicloDia }), emailAvisos = h("input", { type: "email", value: c.emailAvisos, maxlength: "200" }), emailRemetente = h("input", { type: "email", value: c.emailRemetente, maxlength: "200" }), avisoWebhook = h("input", { type: "text", value: c.avisoWebhook, placeholder: "https://" });
+      plano.value = c.planoWorkers;
+      var salvar = function (extra) { return api("PUT", "/api/admin/config", Object.assign({ pioniraWebhook: retorno.value, retencaoDias: Number(dias.value), tetoGastoUSD: Number(teto.value), planoWorkers: plano.value, cicloDia: Number(cicloDia.value),
+        emailAvisos: emailAvisos.value, emailRemetente: emailRemetente.value, avisoWebhook: avisoWebhook.value }, extra || {})).then(function () { telaConfig(); }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); };
       var bNova = h("button", { class: "botao sec menor", type: "button", text: "Gerar nova chave", onclick: function () { if (bNova.getAttribute("data-c")) { bNova.removeAttribute("data-c"); bNova.textContent = "Gerar nova chave"; salvar({ novaChaveIntegracao: true }); } else { bNova.setAttribute("data-c", "1"); bNova.textContent = "Confirmar: a chave atual deixa de valer"; } } });
       raiz.textContent = "";
       raiz.appendChild(h("div", { class: "topo" }, h("h1", { text: "Configurações" })));
@@ -511,6 +538,25 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
         h("p", { text: "A Pionira usa a chave abaixo para criar o endereço de prova de cada aluno e para consultar os resultados liberados. O endereço de retorno recebe o resultado no instante da liberação." }),
         h("div", null, [h("p", { class: "nota", style: "margin:0 0 6px", text: "Chave de integração" }), h("div", { class: "acoes" }, [chave, bc, bNova])]),
         campo("Endereço de retorno da Pionira para os resultados (opcional)", retorno)]));
+      atualizarAlerta({ estado: c.consumo.estado, pct: c.consumo.pct, total: c.consumo.total, teto: c.consumo.teto, limiteDiario: !!(c.consumo.diario && c.consumo.diario.proximo) });
+      var k = c.consumo, linhas = k.itens.map(function (i) { return h("tr", null, [h("td", { text: i.item }), h("td", { text: i.medida }), h("td", { class: "n", text: dolar(i.custo) })]); });
+      var situacao = k.estado === "contencao" ? "Teto atingido: o servidor não armazena gravações nem abre novas sessões." : k.estado === "atencao" ? "Atenção: consumo em " + k.pct + "% do teto." : k.teto > 0 ? "Dentro do teto: " + k.pct + "% utilizado." : "Sem teto definido.";
+      raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Teto de gasto na Cloudflare" }),
+        h("p", { text: "A Cloudflare não oferece limite de gasto para estes serviços. O servidor mede o próprio consumo, converte em dólares pelos preços publicados e, ao atingir o teto, deixa de armazenar gravações e de abrir novas sessões. As sessões em andamento seguem com respostas e registro de eventos." }),
+        h("div", { class: "grade" }, [campo("Teto de gasto por ciclo, em dólares (0 para não aplicar)", teto), campo("Plano contratado na Cloudflare", plano), campo("Dia de início do ciclo de cobrança", cicloDia, "Consta em Billing, na Cloudflare.")]),
+        h("h3", { text: "Consumo estimado do ciclo iniciado em " + k.ciclo.split("-").reverse().join("/"), style: "margin:24px 0 6px" }),
+        h("div", { class: "rolagem" }, h("table", { class: "consumo" }, [h("thead", null, h("tr", null, [h("th", { text: "Item" }), h("th", { text: "Medição do servidor" }), h("th", { class: "n", text: "Custo estimado" })])), h("tbody", null, linhas),
+          h("tfoot", null, h("tr", null, [h("td", { text: "Total estimado" }), h("td", { text: situacao }), h("td", { class: "n", text: dolar(k.total) })]))])),
+        k.diario ? h("p", { class: k.diario.proximo ? "alerta" : "nota", text: "Plano gratuito, uso de hoje: " + k.diario.requisicoes + " de " + k.diario.limiteRequisicoes + " requisições e " + k.diario.linhasGravadas + " de " + k.diario.limiteLinhas + " linhas gravadas. Ao atingir o limite diário, o serviço é interrompido pela Cloudflare até a virada do dia; por isso o servidor suspende novas sessões aos 85%." }) : null,
+        h("p", { class: "nota", text: "Estimativa do próprio servidor: a fatura da Cloudflare pode diferir em centavos, pois tempo de processamento e leituras não entram na medição." }),
+        h("div", { class: "acoes" }, h("button", { class: "botao sec menor", type: "button", text: "Recontar o armazenamento", onclick: function () { salvar({ recontarArmazenamento: true }); } }))]));
+      raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Avisos ao administrador" }),
+        h("p", { text: "O aviso aparece no topo de todas as telas da administração e segue por e-mail quando o consumo chega a 70% do teto, quando atinge o teto e quando o limite diário do plano gratuito se aproxima." }),
+        h("div", { class: "grade" }, [campo("E-mail que recebe os avisos", emailAvisos), campo("E-mail remetente (opcional)", emailRemetente, "Somente com domínio próprio verificado no serviço de e-mail. Em branco, vale o remetente padrão do serviço."), campo("Endereço de retorno para avisos (opcional)", avisoWebhook, "Recebe cada aviso em JSON, por POST.")]),
+        !c.emailDisponivel ? h("p", { class: "alerta", text: "O envio de e-mail ainda não está ligado ao servidor: falta o segredo RESEND_CHAVE. Até lá, os avisos aparecem nesta administração e seguem ao endereço de retorno, se houver." }) : null,
+        h("div", { class: "acoes" }, h("button", { class: "botao sec menor", type: "button", text: "Salvar e enviar um aviso de teste", onclick: function () { salvar({ testarAviso: true }); } })),
+        c.avisos.length ? h("h3", { text: "Avisos recentes", style: "margin:22px 0 6px" }) : null,
+        c.avisos.length ? h("div", { class: "rolagem" }, h("table", { class: "consumo" }, [h("tbody", null, c.avisos.map(function (a) { return h("tr", null, [h("td", { class: "n", text: new Date(a.quando).toLocaleString("pt-BR") }), h("td", null, [h("strong", { text: a.titulo }), h("br"), a.texto]), h("td", { text: a.envio })]); }))])) : null]));
       raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Retenção dos dados" }), campo("Dias de guarda depois do encerramento da sessão (0 para não excluir automaticamente)", dias),
         h("p", { class: "nota", text: "Vencido o prazo, o servidor exclui a sessão, as evidências e as gravações. A exclusão manual fica disponível na auditoria de cada sessão." })]));
       raiz.appendChild(h("div", { class: "acoes", style: "margin-top:22px" }, [h("button", { class: "botao", type: "button", text: "Salvar as configurações", onclick: function () { salvar(); } })]));
@@ -520,7 +566,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
   }
 
   /* ----------------------------- navegação ------------------------- */
-  function ir(vista) { limparTemporizadores(); ({ provas: telaProvas, vivo: telaVivo, sessoes: telaSessoes, config: telaConfig }[vista] || telaProvas)(); }
+  function ir(vista) { limparTemporizadores(); conferirAlerta(); ({ provas: telaProvas, vivo: telaVivo, sessoes: telaSessoes, config: telaConfig }[vista] || telaProvas)(); }
   Array.prototype.forEach.call(document.querySelectorAll("#menu [data-vista]"), function (b) { b.addEventListener("click", function () { ir(b.getAttribute("data-vista")); }); });
   document.getElementById("sair").addEventListener("click", function () { api("POST", "/api/admin/sair").then(function () { telaEntrada(); }, function () { telaEntrada(); }); });
   api("GET", "/api/admin/eu").then(function () { ir("provas"); }, function () {});

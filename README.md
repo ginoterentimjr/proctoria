@@ -1,9 +1,9 @@
-# Proctoria v0.5
+# Proctoria v0.6
 
 Fiscalização de prova on-line: engine para navegador, servidor, página da prova e módulo de administração.
 
 - Demonstração sem servidor: https://ginoterentimjr.github.io/proctoria/
-- Versões anteriores da demonstração: `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
+- Versões anteriores da demonstração: `/v0.5/`, `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
 
 ## Componentes
 
@@ -18,6 +18,7 @@ Fiscalização de prova on-line: engine para navegador, servidor, página da pro
 | `admin.html` | Módulo de administração |
 | `servidor/index.js` | Servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 |
 | `servidor/seb.mjs` | Safe Exam Browser: arquivo de configuração, Config Key e conferência do navegador |
+| `servidor/custos.mjs` | Consumo na Cloudflare: preços, estimativa em dólares e teto de gasto |
 | `docs/integracao-pionira.md` | Especificação da integração com a Pionira |
 
 ## O que o servidor acrescenta
@@ -56,16 +57,33 @@ A compatibilidade com o SEB real (versões 3.7 para macOS e 3.10 para Windows) p
 1. **Armazenamento.** No painel da Cloudflare, em R2, crie o bucket `proctoria-arquivos`.
 2. **Servidor.** Em Workers e Pages, escolha Criar, depois Importar um repositório, e selecione `ginoterentimjr/proctoria`. O comando de publicação é `npx wrangler deploy`.
 3. **Senha do administrador.** No Worker publicado, em Configurações, Variáveis e Segredos, adicione o segredo `ADMIN_SENHA` com a senha desejada.
-4. **Endereços.** A administração fica em `/admin` e cada participante recebe um endereço `/prova#código`.
+4. **Aviso por e-mail (opcional).** Com uma conta no serviço de e-mail Resend, adicione o segredo `RESEND_CHAVE` e informe o e-mail de avisos em Configurações. Sem domínio próprio verificado, o serviço entrega apenas ao e-mail da própria conta.
+5. **Endereços.** A administração fica em `/admin` e cada participante recebe um endereço `/prova#código`.
 
 A cada alteração enviada ao repositório, a Cloudflare publica de novo.
 
 ### Custo previsto
 
-| Item | Plano gratuito | Uso em turma |
+| Item | Plano gratuito (Workers Free) | Plano pago (Workers Paid, US$ 5 por mês) |
 | --- | --- | --- |
-| Requisições | 100 mil por dia | Uma turma de 40 alunos em prova de 1 hora consome cerca de 70 mil. O plano pago custa US$ 5 por mês, com 10 milhões de requisições |
-| Arquivos (R2) | 10 GB | Cada hora de prova gera até cerca de 270 MB por aluno; acima da franquia, US$ 0,015 por GB ao mês |
+| Requisições | 100 mil por dia | 10 milhões por mês incluídas |
+| Linhas gravadas no banco | 100 mil por dia | 50 milhões por mês incluídas |
+| Arquivos (R2) | 10 GB incluídos; acima disso, US$ 0,015 por GB ao mês | Igual |
+
+Uma turma de 40 alunos em prova de 1 hora consome cerca de 70 mil requisições, de 80 mil a 120 mil linhas gravadas e perto de 11 GB de gravação. No plano gratuito, ao atingir um limite diário a Cloudflare interrompe o serviço até a virada do dia: ele atende ao piloto e a turmas de até cerca de 25 participantes por dia, e turmas maiores pedem o plano pago.
+
+### Teto de gasto
+
+A Cloudflare não oferece limite de gasto para Workers, Durable Objects e R2: o alerta de orçamento dela apenas avisa por e-mail. A contenção é feita pelo próprio servidor.
+
+- O servidor mede requisições, linhas gravadas, operações e volume armazenado, e converte em dólares pelos preços publicados (`servidor/custos.mjs`).
+- Em Configurações ficam o teto por ciclo (padrão: US$ 30), o plano contratado e o dia de início do ciclo de cobrança.
+- Aos 70% do teto, o administrador recebe um aviso. Ao atingir o teto, o servidor deixa de armazenar gravações e de abrir novas sessões; as sessões em andamento seguem com respostas e registro de eventos.
+- O aviso aparece no topo de todas as telas da administração, segue por e-mail quando o envio está configurado e, se houver, a um endereço de retorno.
+- Cada sessão tem limite próprio de armazenamento, de cerca de três vezes o volume esperado para a duração da prova.
+- No plano gratuito, aos 85% do limite diário o servidor suspende novas sessões, para preservar as que estão em andamento.
+
+A medição é do próprio servidor. Tempo de processamento e leituras ficam fora dela, e a fatura da Cloudflare pode diferir em centavos.
 
 ## Execução local
 

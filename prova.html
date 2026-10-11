@@ -184,6 +184,7 @@
   var convite = null, credencial = null, sessao = null, ferramentas = null;
   var total = 0, atual = 1, marcadas = [], fimPrevisto = 0, desvioRelogio = 0, encerrando = false;
   var enviados = {}, evidEnviadas = {}, telemetriaAte = 0, conversaDesde = 0, confirmados = [], tique = 0, falhas = 0, sincronizando = false;
+  var recusadoEm = 0, trechosRecusados = 0;
   var fila = [], enviandoTrecho = false, gravMeta = { tela: {}, camera: {} }, gravMetaMudou = false, rascunhoPendente = null, sincId = null, relogioId = null;
 
   function mostrar(vista) { ["carregando", "erro", "codigo", "seb", "entrada", "prova", "fim"].forEach(function (v) { $("v-" + v).hidden = v !== vista; }); window.scrollTo(0, 0); }
@@ -372,6 +373,7 @@
   /* ----------------------------- envio ao servidor ----------------- */
   function aoTrecho(tipo, blob, info) {
     if (!gravMeta[tipo][info.segmento]) { gravMeta[tipo][info.segmento] = { segmento: info.segmento, inicioT: info.inicioT, mime: info.mime }; gravMetaMudou = true; }
+    if (recusadoEm && Date.now() - recusadoEm < 60000) { trechosRecusados++; return; }   // o servidor não está armazenando gravações: nova tentativa a cada minuto
     fila.push({ tipo: tipo, segmento: info.segmento, n: info.n, blob: blob, tentativas: 0 });
     enviarTrechos();
   }
@@ -380,8 +382,13 @@
     enviandoTrecho = true;
     var t = fila[0];
     fetch("/api/sessao/gravacao/" + t.tipo + "/" + t.segmento + "/" + t.n, { method: "PUT", headers: { authorization: "Bearer " + credencial }, body: t.blob }).then(function (r) {
+      if (r.status === 507) {   // teto de gasto do servidor ou limite de armazenamento da sessão
+        trechosRecusados += fila.length; fila.length = 0; enviandoTrecho = false;
+        if (!recusadoEm && sessao) sessao.registrar("Gravação não armazenada pelo servidor", { motivo: "O servidor atingiu o limite de armazenamento definido pelo administrador. A sessão segue com o registro de eventos." });
+        recusadoEm = Date.now(); return;
+      }
       if (!r.ok && r.status !== 413) throw new Error("envio");
-      fila.shift(); enviandoTrecho = false; enviarTrechos();
+      recusadoEm = 0; fila.shift(); enviandoTrecho = false; enviarTrechos();
     }).catch(function () { t.tentativas++; enviandoTrecho = false; setTimeout(enviarTrechos, Math.min(15000, 1500 * t.tentativas)); });
   }
   function avisoConexao(ligar) { $("conexao").hidden = !ligar; }
@@ -402,7 +409,8 @@
   function sincronizar(final) {
     if (!sessao || !credencial || sincronizando) return Promise.resolve(false);
     sincronizando = true; tique++;
-    var lote = montarLote(), tel = sessao.telemetria(), linhas = tel.slice(telemetriaAte), ateAgora = tel.length;
+    var lote = montarLote(), tel = sessao.telemetria(), comTelemetria = final || tique % 3 === 0;   // telemetria em lotes: menos gravações no servidor
+    var linhas = comTelemetria ? tel.slice(telemetriaAte) : [], ateAgora = comTelemetria ? tel.length : telemetriaAte;
     var corpo = { eventos: lote.map(function (x) { return x.copia; }), telemetria: linhas, estado: sessao.estado(), conversaDesde: conversaDesde, confirmados: confirmados.slice() };
     if (tique % 3 === 1 && !final) corpo.aoVivo = sessao.quadros();
     if (rascunhoPendente !== null) corpo.rascunho = rascunhoPendente;
@@ -491,7 +499,7 @@
     drenar(12).then(function () { return esperarFila(120000); }).then(function () {
       return api("POST", "/api/sessao/entregar", { situacao: situacao, resumo: reg.resumo, ambiente: reg.ambiente, gravacoes: meta, estado: Object.assign(sessao.estado(), { suspensa: false, bloqueada: false }), rascunho: ferramentas ? ferramentas.rascunho() : undefined });
     }).then(function () {
-      $("envio-fim").textContent = fila.length ? "A prova foi registrada. Parte das gravações não pôde ser enviada e ficou sinalizada ao administrador." : "Todos os registros foram enviados. Esta janela pode ser fechada.";
+      $("envio-fim").textContent = fila.length || trechosRecusados ? "A prova foi registrada. Parte das gravações não pôde ser enviada e ficou sinalizada ao administrador." : "Todos os registros foram enviados. Esta janela pode ser fechada.";
       $("saida-seb").hidden = !EM_SEB;
     }, function () { $("envio-fim").textContent = "Não foi possível confirmar o envio final. Mantenha esta janela aberta e avise o administrador."; });
   }

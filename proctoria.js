@@ -1,8 +1,8 @@
-/*! Proctoria 0.5.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.6.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.5.0";
+  var VERSAO = "0.6.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",

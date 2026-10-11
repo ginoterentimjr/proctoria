@@ -1,10 +1,10 @@
-/*! Proctoria 0.5.0 | Safe Exam Browser: arquivo de configuração, Config Key e conferência do navegador */
+/*! Proctoria 0.6.0 | Safe Exam Browser: arquivo de configuração, Config Key e conferência do navegador */
 
 /* Configuração entregue ao Safe Exam Browser. A Config Key é calculada apenas com as chaves presentes
    neste arquivo, como o próprio SEB faz, e por isso a lista é curta e explícita. */
 export function configuracao(origem) {
   return {
-    originatorVersion: "Proctoria_0.5.0",
+    originatorVersion: "Proctoria_0.6.0",
     sebConfigPurpose: 0,                     // iniciar uma prova, sem reconfigurar o computador
     startURL: origem + "/prova",
     startURLAppendQueryParameter: true,      // o código do participante chega pelo endereço sebs://...?c=código

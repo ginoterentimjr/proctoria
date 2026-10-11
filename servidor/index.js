@@ -1,8 +1,9 @@
-/*! Proctoria 0.5.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
+/*! Proctoria 0.6.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
 import { DurableObject } from "cloudflare:workers";
 import { configuracao as configSEB, plist as plistSEB, chaveDeConfiguracao, hashDaPagina } from "./seb.mjs";
+import { ciclo as cicloDe, diaDe, usoNovo, estimar } from "./custos.mjs";
 
-const VERSAO = "0.5.0";
+const VERSAO = "0.6.0";
 const DIA = 86400000;
 const CABECALHO_JSON = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const json = (dados, status = 200, extra) => new Response(JSON.stringify(dados), { status, headers: { ...CABECALHO_JSON, ...(extra || {}) } });
@@ -106,7 +107,9 @@ export default {
         const p = await conferir(await chaveDe(env), portador(req));
         if (!p || !p.s) return falha(401, "Credencial da sessão inválida ou expirada.");
         const bytes = Number(req.headers.get("content-length") || 0);
-        if (!bytes || bytes > 40 * 1024 * 1024) return falha(413, "Trecho de gravação fora do tamanho aceito.");
+        if (!bytes || bytes > 16 * 1024 * 1024) return falha(413, "Trecho de gravação fora do tamanho aceito.");
+        const aceite = await banco(env).autorizarTrecho(p.s, bytes);   // teto de gasto e limite por sessão
+        if (!aceite.ok) return json({ erro: "O servidor não está armazenando gravações neste momento.", motivo: aceite.motivo }, 507);
         await env.ARQUIVOS.put(`sessoes/${p.s}/gravacao/${m[1]}/${preencher(m[2], 3)}/${preencher(m[3], 6)}.webm`, req.body, { httpMetadata: { contentType: /mp4/i.test(req.headers.get("content-type") || "") ? "video/mp4" : "video/webm" } });
         return json({ ok: true });
       }
@@ -176,6 +179,7 @@ CREATE TABLE IF NOT EXISTS conversa (id INTEGER PRIMARY KEY AUTOINCREMENT, sessa
 CREATE TABLE IF NOT EXISTS comandos (id INTEGER PRIMARY KEY AUTOINCREMENT, sessao TEXT, tipo TEXT, dados TEXT, criado INTEGER, entregue INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ao_vivo (sessao TEXT PRIMARY KEY, camera TEXT, tela TEXT, quando INTEGER);
 CREATE TABLE IF NOT EXISTS tentativas (ip TEXT, quando INTEGER);
+CREATE TABLE IF NOT EXISTS avisos (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT, titulo TEXT, texto TEXT, quando INTEGER, envio TEXT);
 `;
 
 const REGRAS_PROVA = {
@@ -200,6 +204,14 @@ export class Banco extends DurableObject {
     this.sql = ctx.storage.sql;
     this.sql.exec(ESQUEMA);
     try { this.sql.exec("ALTER TABLE sessoes ADD COLUMN navegador TEXT"); } catch (e) { /* coluna já existente */ }
+    try { this.sql.exec("ALTER TABLE sessoes ADD COLUMN bytes INTEGER DEFAULT 0"); } catch (e) { /* coluna já existente */ }
+    this.cicloDia = parseInt(this.cfg("cicloDia") || "1", 10);
+    this.totalBytes = null;    // soma dos bytes no R2, calculada na primeira consulta e mantida em memória
+    this.uso = ler(this.cfg("uso"), null) || usoNovo(Date.now(), this.cicloDia);
+    this.usoMudou = 0; this.usoGravadoEm = Date.now();
+    this.pend = {};            // bytes aceitos no R2 e ainda não somados à sessão, por sessão
+    this.avisado = ler(this.cfg("avisado"), null) || { ciclo: "", teto: null, nivel: 0, dia: "" };
+    this.alertaEm = 0;
     if (!this.cfg("chave")) this.definir("chave", aleatorio(32));
     if (!this.cfg("integracao")) this.definir("integracao", "pct_" + aleatorio(24));
   }
@@ -208,6 +220,118 @@ export class Banco extends DurableObject {
   cfg(chave) { const r = this.um("SELECT valor FROM config WHERE chave = ?", chave); return r ? r.valor : null; }
   definir(chave, valor) { this.sql.exec("INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor", chave, valor); }
   async chave() { return this.cfg("chave"); }
+
+  /* ----------------------------- consumo e teto de gasto ----------- */
+
+  x(sql, ...args) {   // gravação no banco, com contagem das linhas gravadas
+    const c = this.sql.exec(sql, ...args);
+    this.contar("linhas", c.rowsWritten || 1);
+    return c;
+  }
+  contar(campo, n) {
+    const agora = Date.now(), u = this.uso, chave = cicloDe(agora, this.cicloDia).chave, dia = diaDe(agora);
+    if (u.ciclo !== chave) { const bytes = this.bytesArmazenados(); this.uso = usoNovo(agora, this.cicloDia); this.uso.picoBytes = bytes; }
+    if (this.uso.dia !== dia) { this.uso.dia = dia; this.uso.reqDia = 0; this.uso.linhasDia = 0; }
+    this.uso[campo] = (this.uso[campo] || 0) + n;
+    if (campo === "req") this.uso.reqDia += n;
+    if (campo === "linhas") this.uso.linhasDia += n;
+    this.usoMudou += n;
+  }
+  bytesArmazenados() {
+    if (this.totalBytes === null) {
+      this.totalBytes = (this.um("SELECT COALESCE(SUM(bytes), 0) AS b FROM sessoes").b || 0) + Object.keys(this.pend).reduce((t, k) => t + this.pend[k], 0);
+    }
+    return this.totalBytes;
+  }
+  somarBytes(id, n) { this.pend[id] = (this.pend[id] || 0) + n; if (this.totalBytes !== null) this.totalBytes += n; }
+  gravarUso(forcar) {   // persiste os contadores e os bytes pendentes, sem gravar a cada requisição
+    if (!forcar && (this.usoMudou < 400 && Date.now() - this.usoGravadoEm < 45000)) return;
+    if (!this.usoMudou && !Object.keys(this.pend).length) return;
+    Object.keys(this.pend).forEach((id) => { if (this.pend[id]) this.sql.exec("UPDATE sessoes SET bytes = COALESCE(bytes, 0) + ? WHERE id = ?", this.pend[id], id); });
+    this.pend = {};
+    this.uso.picoBytes = Math.max(this.uso.picoBytes || 0, this.bytesArmazenados());
+    this.definir("uso", JSON.stringify(this.uso));
+    this.usoMudou = 0; this.usoGravadoEm = Date.now();
+  }
+  consumo() {
+    const bytes = this.bytesArmazenados();
+    this.uso.picoBytes = Math.max(this.uso.picoBytes || 0, bytes);
+    const teto = this.cfg("tetoGastoUSD");
+    return estimar(this.uso, bytes, { plano: this.cfg("planoWorkers") || "gratuito", teto: teto === null ? 30 : Number(teto) });
+  }
+  /* Avisa o administrador quando o consumo muda de faixa: no painel, por e-mail e, se configurado, por endereço de retorno. */
+  async verificarAlertas(origem) {
+    const est = this.consumo(), nivel = est.estado === "contencao" ? 2 : est.estado === "atencao" ? 1 : 0, a = this.avisado;
+    const dolar = (v) => "US$ " + Number(v).toFixed(2).replace(".", ",");
+    if (a.ciclo !== est.ciclo || a.teto !== est.teto) { a.ciclo = est.ciclo; a.teto = est.teto; a.nivel = 0; }
+    let mudou = false;
+    if (nivel > a.nivel) {
+      a.nivel = nivel; mudou = true;
+      if (nivel === 2) await this.avisar("teto", "Teto de gasto atingido na Proctoria",
+        `O consumo estimado do ciclo chegou a ${dolar(est.total)}, e o teto definido é de ${dolar(est.teto)}. O servidor deixou de armazenar gravações e de abrir novas sessões. As sessões em andamento seguem com respostas e registro de eventos. Para retomar, eleve o teto em Administração, Configurações, ou exclua sessões antigas.`, origem);
+      else await this.avisar("atencao", "Consumo da Proctoria em 70% do teto",
+        `O consumo estimado do ciclo está em ${dolar(est.total)}, ${est.pct}% do teto de ${dolar(est.teto)}. Ao atingir o teto, o servidor deixa de armazenar gravações e de abrir novas sessões.`, origem);
+    } else if (nivel < a.nivel) { a.nivel = nivel; mudou = true; }
+    if (est.diario && est.diario.proximo && a.dia !== this.uso.dia) {
+      a.dia = this.uso.dia; mudou = true;
+      await this.avisar("limite_diario", "Limite diário do plano gratuito da Cloudflare próximo",
+        `Hoje o servidor registrou ${est.diario.requisicoes} requisições e ${est.diario.linhasGravadas} linhas gravadas; o plano gratuito admite ${est.diario.limiteRequisicoes} e ${est.diario.limiteLinhas} por dia. Novas sessões ficam suspensas até a virada do dia (21h de Brasília), para preservar as sessões em andamento. O plano Workers Paid elimina esse limite.`, origem);
+    }
+    if (mudou) this.definir("avisado", JSON.stringify(a));
+  }
+  async avisar(tipo, titulo, texto, origem) {
+    const para = (this.cfg("emailAvisos") || "").trim(), de = (this.cfg("emailRemetente") || "").trim(), retorno = (this.cfg("avisoWebhook") || "").trim();
+    const envios = [];
+    const corpoTexto = texto + "\n\nAdministração: " + (origem || "") + "/admin\n";
+    if (!para) envios.push("e-mail não enviado: nenhum endereço cadastrado");
+    else if (this.env.RESEND_CHAVE) {   // serviço de e-mail por HTTPS (Resend); sem domínio próprio, o remetente é o endereço de testes do serviço
+      try {
+        const r = await fetch(this.env.EMAIL_API || "https://api.resend.com/emails", { method: "POST", headers: { authorization: "Bearer " + this.env.RESEND_CHAVE, "content-type": "application/json" },
+          body: JSON.stringify({ from: "Proctoria <" + (de || "onboarding@resend.dev") + ">", to: [para], subject: titulo, text: corpoTexto }) });
+        envios.push(r.ok ? "e-mail enviado a " + para : "e-mail não enviado (resposta " + r.status + " do serviço de e-mail)");
+      } catch (e) { envios.push("e-mail não enviado: serviço de e-mail sem resposta"); }
+    } else if (de && this.env.EMAIL) {   // envio pela própria Cloudflare, quando houver domínio habilitado na conta
+      try { await this.env.EMAIL.send({ to: para, from: { email: de, name: "Proctoria" }, subject: titulo, text: corpoTexto }); envios.push("e-mail enviado a " + para); }
+      catch (e) { envios.push("e-mail não enviado (" + String((e && (e.code || e.message)) || e).slice(0, 120) + ")"); }
+    } else envios.push("e-mail não enviado: o envio de e-mail não está configurado no servidor");
+    if (/^https:\/\//.test(retorno)) {
+      try { const r = await fetch(retorno, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ evento: "aviso_proctoria", tipo, titulo, texto, quando: new Date().toISOString() }) }); envios.push("endereço de retorno: " + r.status); }
+      catch (e) { envios.push("endereço de retorno sem resposta"); }
+    }
+    this.sql.exec("INSERT INTO avisos (tipo, titulo, texto, quando, envio) VALUES (?, ?, ?, ?, ?)", tipo, titulo, texto, Date.now(), envios.join("; "));
+  }
+  alerta() {   // situação exibida no topo de todas as telas da administração
+    const est = this.consumo();
+    return { estado: est.estado, pct: est.pct, total: est.total, teto: est.teto, limiteDiario: !!(est.diario && est.diario.proximo) };
+  }
+
+  /* Chamado pelo Worker antes de cada trecho de gravação seguir para o R2. */
+  async autorizarTrecho(id, bytes) {
+    this.contar("req", 1);
+    const s = this.um("SELECT id, prova, bytes FROM sessoes WHERE id = ?", id);
+    if (!s) return { ok: false, motivo: "sessao_inexistente" };
+    if (this.consumo().contencao) { this.ctx.waitUntil(this.verificarAlertas("").catch(() => {})); return { ok: false, motivo: "teto" }; }
+    const p = this.prova(s.prova), limite = Math.max(300, (p ? p.duracaoMin : 60) * 12) * 1024 * 1024;   // cerca de três vezes o volume esperado
+    if ((s.bytes || 0) + (this.pend[id] || 0) + bytes > limite) return { ok: false, motivo: "sessao" };
+    this.somarBytes(id, bytes);
+    this.contar("opsA", 1);
+    return { ok: true };
+  }
+  async recontarArmazenamento() {   // confere os bytes de cada sessão com a listagem do R2
+    const porSessao = {}; let cursor, paginas = 0, completo = true;
+    do {
+      const r = await this.env.ARQUIVOS.list({ prefix: "sessoes/", cursor, limit: 1000 }); paginas++;
+      r.objects.forEach((o) => { const id = o.key.split("/")[1]; porSessao[id] = (porSessao[id] || 0) + o.size; });
+      cursor = r.truncated ? r.cursor : null;
+      if (paginas >= 300 && cursor) { completo = false; break; }
+    } while (cursor);
+    this.contar("opsA", paginas);
+    this.pend = {}; this.totalBytes = null;
+    if (completo) this.sql.exec("UPDATE sessoes SET bytes = 0");
+    Object.keys(porSessao).forEach((id) => this.sql.exec("UPDATE sessoes SET bytes = ? WHERE id = ?", porSessao[id], id));
+    this.gravarUso(true);
+    return { completo, sessoes: Object.keys(porSessao).length };
+  }
 
   prova(id) {
     const p = this.um("SELECT * FROM provas WHERE id = ?", id);
@@ -227,8 +351,18 @@ export class Banco extends DurableObject {
   }
 
   async fetch(req) {
+    const resposta = await this.atender(req);
+    try {   // a medição e os avisos não interrompem o atendimento
+      this.gravarUso(false);
+      if (Date.now() - this.alertaEm > 5000) { this.alertaEm = Date.now(); this.ctx.waitUntil(this.verificarAlertas(new URL(req.url).origin).catch(() => {})); }
+    } catch (e) { /* segue */ }
+    return resposta;
+  }
+
+  async atender(req) {
     const url = new URL(req.url), partes = url.pathname.split("/").filter(Boolean).slice(1), metodo = req.method;
     const corpo = async () => { try { return await req.json(); } catch (e) { return {}; } };
+    this.contar("req", 1);
     try {
       if (partes[0] === "convite") return await this.rotaConvite(req, partes, metodo, corpo, url);
       if (partes[0] === "sessao") return await this.rotaSessao(req, partes, metodo, corpo, url);
@@ -288,6 +422,11 @@ export class Banco extends DurableObject {
       if (p.fimEm && agora > Date.parse(p.fimEm) && !(s && s.inicio)) return falha(403, "O período de aplicação desta prova está encerrado.");
       if (!total) return falha(409, "Esta prova ainda não tem questões cadastradas.");
       if (s && s.estado === "encerrada") return json({ ...publico, encerrada: true });
+      if (!(s && s.inicio)) {   // sessões já iniciadas seguem; novas aguardam
+        const est = this.consumo();
+        if (est.contencao) return json({ erro: "As provas estão temporariamente indisponíveis. Avise o administrador.", motivo: "teto" }, 503);
+        if (est.diario && est.diario.proximo) return json({ erro: "O servidor atingiu o limite de uso do dia. Avise o administrador.", motivo: "limite_diario" }, 503);
+      }
       const nav = await this.navegadorDaSessao(req, await corpo(), url, p.regras);
       if (publico.prova.navegador === "seb") {
         if (nav.tipo !== "seb") return json({ erro: "Esta prova é aplicada no Safe Exam Browser. Abra o endereço recebido no Safe Exam Browser.", motivo: "seb_exigido" }, 403);
@@ -296,9 +435,9 @@ export class Banco extends DurableObject {
       let retomada = null;
       if (!s) {
         const id = aleatorio(12);
-        this.sql.exec("INSERT INTO sessoes (id, convite, prova, aluno, estado, criada, ultimo_sinal) VALUES (?, ?, ?, ?, 'aberta', ?, ?)",
+        this.x("INSERT INTO sessoes (id, convite, prova, aluno, estado, criada, ultimo_sinal) VALUES (?, ?, ?, ?, 'aberta', ?, ?)",
           id, c.codigo, p.id, JSON.stringify({ id: c.aluno_id, nome: c.nome, email: c.email }), agora, agora);
-        this.sql.exec("UPDATE convites SET sessao = ? WHERE codigo = ?", id, c.codigo);
+        this.x("UPDATE convites SET sessao = ? WHERE codigo = ?", id, c.codigo);
         s = this.um("SELECT * FROM sessoes WHERE id = ?", id);
       } else {
         const cli = ler(s.cliente, {}), seq = this.um("SELECT COALESCE(MAX(n), 0) AS n FROM eventos WHERE sessao = ?", s.id).n;
@@ -310,10 +449,10 @@ export class Banco extends DurableObject {
           queda: s.inicio ? { duracaoMs: semSinal, excedeu: semSinal > (p.regras.quedaMaximaMin || 10) * 60000 } : null
         };
         const segmento = (s.segmento || 0) + 10;   // novos trechos de gravação não se misturam aos anteriores
-        this.sql.exec("UPDATE sessoes SET quedas = quedas + ?, segmento = ?, ultimo_sinal = ? WHERE id = ?", s.inicio ? 1 : 0, segmento, agora, s.id);
+        this.x("UPDATE sessoes SET quedas = quedas + ?, segmento = ?, ultimo_sinal = ? WHERE id = ?", s.inicio ? 1 : 0, segmento, agora, s.id);
         s.segmento = segmento;
       }
-      this.sql.exec("UPDATE sessoes SET navegador = ? WHERE id = ?", JSON.stringify(nav), s.id);
+      this.x("UPDATE sessoes SET navegador = ? WHERE id = ?", JSON.stringify(nav), s.id);
       const credencial = await assinar(this.cfg("chave"), { s: s.id, p: p.id, e: agora + 12 * 3600000 });
       return json({ ...publico, credencial, retomada, navegador: nav, segmentoInicial: s.segmento || 0,
         sessao: { id: s.id, criadaEm: new Date(s.criada).toISOString(), inicio: s.inicio, fimPrevisto: s.fim_previsto, agora } });
@@ -335,7 +474,9 @@ export class Banco extends DurableObject {
       if (!m || !/^[a-zA-Z]{1,12}$/.test(campo)) continue;
       const ext = m[1].indexOf("jpeg") >= 0 ? "jpg" : m[1].indexOf("webm") >= 0 ? "webm" : m[1].indexOf("mp4") >= 0 ? "m4a" : m[1].indexOf("png") >= 0 ? "png" : "bin";
       const chave = `sessoes/${sessao}/evidencias/${preencher(n, 5)}-${campo}.${ext}`;
-      await this.env.ARQUIVOS.put(chave, deB64u(m[2]), { httpMetadata: { contentType: m[1] } });
+      const dados = deB64u(m[2]);
+      await this.env.ARQUIVOS.put(chave, dados, { httpMetadata: { contentType: m[1] } });
+      this.somarBytes(sessao, dados.length); this.contar("opsA", 1);
       chaves[campo] = chave;
     }
     return chaves;
@@ -362,7 +503,7 @@ export class Banco extends DurableObject {
   encerrarSessao(s, situacao, extras) {
     if (s.estado === "encerrada") return;
     const { nota, total } = this.apurar(s), x = extras || {};
-    this.sql.exec("UPDATE sessoes SET estado = 'encerrada', encerrada = ?, situacao = ?, nota = ?, total = ?, resumo = COALESCE(?, resumo), ambiente = COALESCE(?, ambiente), rascunho = COALESCE(?, rascunho) WHERE id = ?",
+    this.x("UPDATE sessoes SET estado = 'encerrada', encerrada = ?, situacao = ?, nota = ?, total = ?, resumo = COALESCE(?, resumo), ambiente = COALESCE(?, ambiente), rascunho = COALESCE(?, rascunho) WHERE id = ?",
       Date.now(), situacao, nota, total, x.resumo ? JSON.stringify(x.resumo) : null, x.ambiente ? JSON.stringify(x.ambiente) : null, x.rascunho === undefined ? null : limpar(x.rascunho, 20000), s.id);
   }
 
@@ -378,7 +519,7 @@ export class Banco extends DurableObject {
         const qs = this.questoes(s.prova), ordem = { q: p.ordemAleatoria ? embaralhar(qs.length).map((i) => qs[i].n) : qs.map((x) => x.n), a: {} };
         qs.forEach((x) => { ordem.a[x.n] = p.embaralharAlternativas ? embaralhar((x.alternativas || []).length) : (x.alternativas || []).map((_, i) => i); });
         const fim = agora + p.duracaoMin * 60000;
-        this.sql.exec("UPDATE sessoes SET estado = 'em_prova', inicio = ?, fim_previsto = ?, ordem = ?, ultimo_sinal = ? WHERE id = ?", agora, fim, JSON.stringify(ordem), agora, s.id);
+        this.x("UPDATE sessoes SET estado = 'em_prova', inicio = ?, fim_previsto = ?, ordem = ?, ultimo_sinal = ? WHERE id = ?", agora, fim, JSON.stringify(ordem), agora, s.id);
         s.inicio = agora; s.fim_previsto = fim; s.ordem = JSON.stringify(ordem);
       }
       const ordem = ler(s.ordem, { q: [], a: {} }), respondidas = {};
@@ -394,7 +535,7 @@ export class Banco extends DurableObject {
       const posicao = parseInt(partes[2], 10), qd = this.questaoDaSessao(s, posicao);
       if (!qd) return falha(404, "Questão inexistente.");
       const r = this.um("SELECT alternativa FROM respostas WHERE sessao = ? AND n = ?", s.id, qd.original);
-      this.sql.exec("UPDATE sessoes SET questao_atual = ? WHERE id = ?", posicao, s.id);
+      this.x("UPDATE sessoes SET questao_atual = ? WHERE id = ?", posicao, s.id);
       return json({ n: posicao, total: ler(s.ordem, { q: [] }).q.length, caso: qd.dados.caso || "", enunciado: qd.dados.enunciado || "",
         alternativas: qd.perm.map((i) => qd.dados.alternativas[i]), resposta: r && r.alternativa !== null ? qd.perm.indexOf(r.alternativa) : null });
     }
@@ -406,7 +547,7 @@ export class Banco extends DurableObject {
       if (!qd) return falha(404, "Questão inexistente.");
       const k = b.k === null || b.k === undefined ? null : qd.perm[parseInt(b.k, 10)];
       if (k === undefined) return falha(400, "Alternativa inexistente.");
-      this.sql.exec("INSERT INTO respostas (sessao, n, alternativa, quando) VALUES (?, ?, ?, ?) ON CONFLICT (sessao, n) DO UPDATE SET alternativa = excluded.alternativa, quando = excluded.quando", s.id, qd.original, k, agora);
+      this.x("INSERT INTO respostas (sessao, n, alternativa, quando) VALUES (?, ?, ?, ?) ON CONFLICT (sessao, n) DO UPDATE SET alternativa = excluded.alternativa, quando = excluded.quando", s.id, qd.original, k, agora);
       return json({ ok: true });
     }
 
@@ -417,22 +558,23 @@ export class Banco extends DurableObject {
         if (!n) continue;
         const atual = this.um("SELECT evidencias FROM eventos WHERE sessao = ? AND n = ?", s.id, n);
         const evid = await this.guardarEvidencias(s.id, n, ev.evidencias, atual ? ler(atual.evidencias, {}) : {});
-        this.sql.exec(`INSERT INTO eventos (sessao, n, t, hora, fase, classe, tipo, titulo, detalhe, duracao, dados, evidencias) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        this.x(`INSERT INTO eventos (sessao, n, t, hora, fase, classe, tipo, titulo, detalhe, duracao, dados, evidencias) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (sessao, n) DO UPDATE SET t = excluded.t, detalhe = excluded.detalhe, duracao = excluded.duracao, dados = excluded.dados, evidencias = excluded.evidencias`,
           s.id, n, parseInt(ev.t, 10) || 0, limpar(ev.hora, 40), limpar(ev.fase, 20), limpar(ev.classe, 20), limpar(ev.tipo, 40), limpar(ev.titulo, 200), limpar(ev.detalhe, 1000),
           ev.duracaoMs === undefined || ev.duracaoMs === null ? null : parseInt(ev.duracaoMs, 10), ev.dados ? limpar(JSON.stringify(ev.dados), 2000) : null, JSON.stringify(evid));
       }
       if (Array.isArray(b.telemetria) && b.telemetria.length) {
         const lote = (this.um("SELECT COALESCE(MAX(lote), 0) AS n FROM telemetria WHERE sessao = ?", s.id).n || 0) + 1;
-        this.sql.exec("INSERT INTO telemetria (sessao, lote, linhas) VALUES (?, ?, ?)", s.id, lote, limpar(JSON.stringify(b.telemetria.slice(0, 600)), 200000));
+        this.x("INSERT INTO telemetria (sessao, lote, linhas) VALUES (?, ?, ?)", s.id, lote, limpar(JSON.stringify(b.telemetria.slice(0, 600)), 200000));
       }
       if (b.aoVivo && (b.aoVivo.camera || b.aoVivo.tela)) {
-        this.sql.exec("INSERT INTO ao_vivo (sessao, camera, tela, quando) VALUES (?, ?, ?, ?) ON CONFLICT (sessao) DO UPDATE SET camera = COALESCE(excluded.camera, camera), tela = COALESCE(excluded.tela, tela), quando = excluded.quando",
+        this.x("INSERT INTO ao_vivo (sessao, camera, tela, quando) VALUES (?, ?, ?, ?) ON CONFLICT (sessao) DO UPDATE SET camera = COALESCE(excluded.camera, camera), tela = COALESCE(excluded.tela, tela), quando = excluded.quando",
           s.id, b.aoVivo.camera ? limpar(b.aoVivo.camera, 400000) : null, b.aoVivo.tela ? limpar(b.aoVivo.tela, 800000) : null, agora);
       }
-      (b.confirmados || []).slice(0, 50).forEach((id) => this.sql.exec("UPDATE comandos SET entregue = 1 WHERE id = ? AND sessao = ?", parseInt(id, 10) || 0, s.id));
-      this.sql.exec("UPDATE sessoes SET ultimo_sinal = ?, cliente = COALESCE(?, cliente), rascunho = COALESCE(?, rascunho), gravacoes = COALESCE(?, gravacoes) WHERE id = ?",
-        agora, b.estado ? limpar(JSON.stringify(b.estado), 4000) : null, b.rascunho === undefined ? null : limpar(b.rascunho, 20000), b.gravacoes ? limpar(JSON.stringify(b.gravacoes), 8000) : null, s.id);
+      (b.confirmados || []).slice(0, 50).forEach((id) => this.x("UPDATE comandos SET entregue = 1 WHERE id = ? AND sessao = ?", parseInt(id, 10) || 0, s.id));
+      const somar = this.pend[s.id] || 0; delete this.pend[s.id];
+      this.x("UPDATE sessoes SET bytes = COALESCE(bytes, 0) + ?, ultimo_sinal = ?, cliente = COALESCE(?, cliente), rascunho = COALESCE(?, rascunho), gravacoes = COALESCE(?, gravacoes) WHERE id = ?",
+        somar, agora, b.estado ? limpar(JSON.stringify(b.estado), 4000) : null, b.rascunho === undefined ? null : limpar(b.rascunho, 20000), b.gravacoes ? limpar(JSON.stringify(b.gravacoes), 8000) : null, s.id);
       const comandos = this.q("SELECT id, tipo, dados FROM comandos WHERE sessao = ? AND entregue = 0 ORDER BY id", s.id).map((c) => ({ id: c.id, tipo: c.tipo, dados: ler(c.dados, {}) }));
       const mensagens = this.q("SELECT id, de, texto, quando FROM conversa WHERE sessao = ? AND id > ? ORDER BY id", s.id, parseInt(b.conversaDesde, 10) || 0);
       return json({ agora, fimPrevisto: s.fim_previsto, encerrada: s.estado === "encerrada", situacao: s.situacao, comandos, conversa: mensagens });
@@ -441,15 +583,15 @@ export class Banco extends DurableObject {
     if (acao === "conversa" && metodo === "POST") {
       const b = await corpo(), texto = limpar(b.texto, 1000).trim();
       if (!texto) return falha(400, "Mensagem vazia.");
-      this.sql.exec("INSERT INTO conversa (sessao, de, texto, quando) VALUES (?, 'aluno', ?, ?)", s.id, texto, agora);
+      this.x("INSERT INTO conversa (sessao, de, texto, quando) VALUES (?, 'aluno', ?, ?)", s.id, texto, agora);
       return json({ ok: true });
     }
 
     if (acao === "entregar" && metodo === "POST") {
       const b = await corpo();
       const aceitas = ["entregue", "encerrada_durante_bloqueio", "invalidada", "tempo_esgotado", "encerrada_pelo_administrador"];
-      if (b.gravacoes) this.sql.exec("UPDATE sessoes SET gravacoes = ? WHERE id = ?", limpar(JSON.stringify(b.gravacoes), 8000), s.id);
-      if (b.estado) this.sql.exec("UPDATE sessoes SET cliente = ? WHERE id = ?", limpar(JSON.stringify(b.estado), 4000), s.id);
+      if (b.gravacoes) this.x("UPDATE sessoes SET gravacoes = ? WHERE id = ?", limpar(JSON.stringify(b.gravacoes), 8000), s.id);
+      if (b.estado) this.x("UPDATE sessoes SET cliente = ? WHERE id = ?", limpar(JSON.stringify(b.estado), 4000), s.id);
       this.encerrarSessao(s, aceitas.indexOf(b.situacao) >= 0 ? b.situacao : "entregue", { resumo: b.resumo, ambiente: b.ambiente, rascunho: b.rascunho });
       return json({ ok: true, encerrada: true });
     }
@@ -462,20 +604,20 @@ export class Banco extends DurableObject {
     const acao = partes[1], agora = Date.now();
     if (acao === "entrar" && metodo === "POST") {
       const ip = req.headers.get("cf-connecting-ip") || "local";
-      this.sql.exec("DELETE FROM tentativas WHERE quando < ?", agora - 15 * 60000);
+      this.x("DELETE FROM tentativas WHERE quando < ?", agora - 15 * 60000);
       if (this.um("SELECT COUNT(*) AS n FROM tentativas WHERE ip = ?", ip).n >= 8) return falha(429, "Muitas tentativas. Aguarde quinze minutos.");
       if (!this.env.ADMIN_SENHA) return falha(503, "A senha do administrador ainda não foi definida no servidor (segredo ADMIN_SENHA).");
       const b = await corpo();
       const [a, c] = await Promise.all([sha256Hex("pct:" + String(b.senha || "")), sha256Hex("pct:" + this.env.ADMIN_SENHA)]);
       let dif = 0; for (let i = 0; i < a.length; i++) dif |= a.charCodeAt(i) ^ c.charCodeAt(i);
-      if (dif) { this.sql.exec("INSERT INTO tentativas (ip, quando) VALUES (?, ?)", ip, agora); return falha(401, "Senha incorreta."); }
+      if (dif) { this.x("INSERT INTO tentativas (ip, quando) VALUES (?, ?)", ip, agora); return falha(401, "Senha incorreta."); }
       const cred = await assinar(this.cfg("chave"), { a: 1, e: agora + 12 * 3600000 });
       return json({ ok: true }, 200, { "set-cookie": `pct_admin=${cred}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200` });
     }
     if (acao === "sair" && metodo === "POST") return json({ ok: true }, 200, { "set-cookie": "pct_admin=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0" });
     const p = await conferir(this.cfg("chave"), cookieDe(req, "pct_admin"));
     if (!p || !p.a) return falha(401, "Acesso restrito ao administrador.");
-    if (acao === "eu") return json({ ok: true, versao: VERSAO });
+    if (acao === "eu") return json({ ok: true, versao: VERSAO, alerta: this.alerta() });
 
     if (acao === "config") {
       if (metodo === "PUT") {
@@ -483,9 +625,21 @@ export class Banco extends DurableObject {
         if (b.pioniraWebhook !== undefined) this.definir("pioniraWebhook", limpar(b.pioniraWebhook, 500).trim());
         if (b.retencaoDias !== undefined) this.definir("retencaoDias", String(Math.max(0, parseInt(b.retencaoDias, 10) || 0)));
         if (b.novaChaveIntegracao) this.definir("integracao", "pct_" + aleatorio(24));
+        if (b.tetoGastoUSD !== undefined) this.definir("tetoGastoUSD", String(Math.min(100000, Math.max(0, Number(b.tetoGastoUSD) || 0))));
+        if (b.planoWorkers !== undefined) this.definir("planoWorkers", b.planoWorkers === "pago" ? "pago" : "gratuito");
+        if (b.cicloDia !== undefined) { this.cicloDia = Math.min(28, Math.max(1, parseInt(b.cicloDia, 10) || 1)); this.definir("cicloDia", String(this.cicloDia)); this.contar("req", 0); }
+        if (b.recontarArmazenamento) await this.recontarArmazenamento();
+        if (b.emailAvisos !== undefined) this.definir("emailAvisos", /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(b.emailAvisos).trim()) ? String(b.emailAvisos).trim().slice(0, 200) : "");
+        if (b.emailRemetente !== undefined) this.definir("emailRemetente", /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(b.emailRemetente).trim()) ? String(b.emailRemetente).trim().slice(0, 200) : "");
+        if (b.avisoWebhook !== undefined) this.definir("avisoWebhook", limpar(b.avisoWebhook, 500).trim());
+        if (b.testarAviso) await this.avisar("teste", "Aviso de teste da Proctoria", "Este é um aviso de teste, enviado a pedido do administrador. Nenhuma ação é necessária.", url.origin);
+        this.alertaEm = 0;
         await this.agendarLimpeza();
       }
       return json({ pioniraWebhook: this.cfg("pioniraWebhook") || "", retencaoDias: parseInt(this.cfg("retencaoDias") || "0", 10), chaveIntegracao: this.cfg("integracao"), versao: VERSAO, armazenamento: !!this.env.ARQUIVOS,
+        tetoGastoUSD: this.cfg("tetoGastoUSD") === null ? 30 : Number(this.cfg("tetoGastoUSD")), planoWorkers: this.cfg("planoWorkers") || "gratuito", cicloDia: this.cicloDia, consumo: this.consumo(),
+        emailAvisos: this.cfg("emailAvisos") || "", emailRemetente: this.cfg("emailRemetente") || "", avisoWebhook: this.cfg("avisoWebhook") || "", emailDisponivel: !!(this.env.EMAIL || this.env.RESEND_CHAVE),
+        avisos: this.q("SELECT id, tipo, titulo, texto, quando, envio FROM avisos ORDER BY id DESC LIMIT 12"),
         seb: { configuracao: url.origin + "/api/seb/config.seb", chave: await chaveDeConfiguracao(configSEB(url.origin)) } });
     }
 
@@ -503,7 +657,7 @@ export class Banco extends DurableObject {
       }
       if (!id && metodo === "POST") {
         const b = await corpo(), novo = aleatorio(8);
-        this.sql.exec("INSERT INTO provas (id, titulo, dados, criada, atualizada) VALUES (?, ?, ?, ?, ?)", novo, limpar(b.titulo, 200) || "Prova sem título", JSON.stringify(this.dadosProva(b)), agora, agora);
+        this.x("INSERT INTO provas (id, titulo, dados, criada, atualizada) VALUES (?, ?, ?, ?, ?)", novo, limpar(b.titulo, 200) || "Prova sem título", JSON.stringify(this.dadosProva(b)), agora, agora);
         return json(this.prova(novo), 201);
       }
       const pr = this.prova(id);
@@ -512,10 +666,10 @@ export class Banco extends DurableObject {
         if (metodo === "GET") return json({ ...pr, questoes: this.questoes(id) });
         if (metodo === "PUT") {
           const b = await corpo();
-          this.sql.exec("UPDATE provas SET titulo = ?, dados = ?, atualizada = ? WHERE id = ?", limpar(b.titulo, 200) || pr.titulo, JSON.stringify(this.dadosProva(b)), agora, id);
+          this.x("UPDATE provas SET titulo = ?, dados = ?, atualizada = ? WHERE id = ?", limpar(b.titulo, 200) || pr.titulo, JSON.stringify(this.dadosProva(b)), agora, id);
           return json(this.prova(id));
         }
-        if (metodo === "DELETE") { this.sql.exec("UPDATE provas SET arquivada = 1 WHERE id = ?", id); return json({ ok: true }); }
+        if (metodo === "DELETE") { this.x("UPDATE provas SET arquivada = 1 WHERE id = ?", id); return json({ ok: true }); }
       }
       if (partes[3] === "questoes" && metodo === "PUT") {
         const b = await corpo(), lista = Array.isArray(b.questoes) ? b.questoes : [];
@@ -526,10 +680,10 @@ export class Banco extends DurableObject {
           else if (!(Number.isInteger(qd.correta) && qd.correta >= 0 && qd.correta < qd.alternativas.length)) erros.push("Questão " + (i + 1) + ": alternativa correta não indicada.");
         });
         if (erros.length) return json({ erro: "Há questões incompletas.", detalhes: erros.slice(0, 20) }, 400);
-        this.sql.exec("DELETE FROM questoes WHERE prova = ?", id);
-        lista.forEach((qd, i) => this.sql.exec("INSERT INTO questoes (prova, n, dados) VALUES (?, ?, ?)", id, i + 1,
+        this.x("DELETE FROM questoes WHERE prova = ?", id);
+        lista.forEach((qd, i) => this.x("INSERT INTO questoes (prova, n, dados) VALUES (?, ?, ?)", id, i + 1,
           JSON.stringify({ caso: limpar(qd.caso, 6000), enunciado: limpar(qd.enunciado, 4000), alternativas: qd.alternativas.map((a) => limpar(a, 1000)), correta: qd.correta, pontos: Number(qd.pontos) > 0 ? Number(qd.pontos) : 1 })));
-        this.sql.exec("UPDATE provas SET atualizada = ? WHERE id = ?", agora, id);
+        this.x("UPDATE provas SET atualizada = ? WHERE id = ?", agora, id);
         return json({ ok: true, total: lista.length });
       }
       if (partes[3] === "convites") {
@@ -542,7 +696,7 @@ export class Banco extends DurableObject {
         if (metodo === "DELETE" && partes[4]) {
           const c = this.um("SELECT sessao FROM convites WHERE codigo = ? AND prova = ?", partes[4], id);
           if (c && c.sessao) return falha(409, "Este convite já foi utilizado e não pode ser excluído.");
-          this.sql.exec("DELETE FROM convites WHERE codigo = ? AND prova = ?", partes[4], id);
+          this.x("DELETE FROM convites WHERE codigo = ? AND prova = ?", partes[4], id);
           return json(this.convitesDe(id, url.origin));
         }
       }
@@ -554,7 +708,7 @@ export class Banco extends DurableObject {
       const linhas = prova
         ? this.q("SELECT * FROM sessoes WHERE prova = ? AND (estado != 'encerrada' OR encerrada > ?) ORDER BY criada", prova, agora - 15 * 60000)
         : this.q("SELECT * FROM sessoes WHERE estado != 'encerrada' OR encerrada > ? ORDER BY criada", agora - 15 * 60000);
-      return json({ agora, sessoes: linhas.map((s) => this.resumoSessao(s, agora, true)) });
+      return json({ agora, sessoes: linhas.map((s) => this.resumoSessao(s, agora, true)), alerta: this.alerta() });
     }
 
     if (acao === "sessoes") {
@@ -578,16 +732,16 @@ export class Banco extends DurableObject {
         if (metodo === "POST") {
           const b = await corpo(), texto = limpar(b.texto, 1000).trim();
           if (!texto) return falha(400, "Mensagem vazia.");
-          this.sql.exec("INSERT INTO conversa (sessao, de, texto, quando) VALUES (?, 'admin', ?, ?)", s.id, texto, agora);
+          this.x("INSERT INTO conversa (sessao, de, texto, quando) VALUES (?, 'admin', ?, ?)", s.id, texto, agora);
         }
-        this.sql.exec("UPDATE conversa SET lida = 1 WHERE sessao = ? AND de = 'aluno'", s.id);
+        this.x("UPDATE conversa SET lida = 1 WHERE sessao = ? AND de = 'aluno'", s.id);
         return json(this.q("SELECT id, de, texto, quando FROM conversa WHERE sessao = ? ORDER BY id", s.id));
       }
       if (partes[3] === "comando" && metodo === "POST") {
         const b = await corpo(), tipos = ["liberar", "encerrar", "suspender", "invalidar"];
         if (tipos.indexOf(b.tipo) < 0) return falha(400, "Comando desconhecido.");
         if (s.estado === "encerrada") return falha(409, "Esta sessão já está encerrada.");
-        this.sql.exec("INSERT INTO comandos (sessao, tipo, dados, criado) VALUES (?, ?, ?, ?)", s.id, b.tipo, JSON.stringify({ texto: limpar(b.texto, 500) }), agora);
+        this.x("INSERT INTO comandos (sessao, tipo, dados, criado) VALUES (?, ?, ?, ?)", s.id, b.tipo, JSON.stringify({ texto: limpar(b.texto, 500) }), agora);
         // sem sinal do participante há mais de 20 s: o encerramento é aplicado no próprio servidor
         if ((b.tipo === "encerrar" || b.tipo === "invalidar") && agora - (s.ultimo_sinal || 0) > 20000) {
           this.encerrarSessao(s, b.tipo === "invalidar" ? "invalidada" : "encerrada_pelo_administrador");
@@ -597,7 +751,7 @@ export class Banco extends DurableObject {
       }
       if (partes[3] === "revisao" && metodo === "PUT") {
         const b = await corpo();
-        this.sql.exec("UPDATE sessoes SET revisao = ?, situacao_final = ? WHERE id = ?", limpar(JSON.stringify({ decisoes: b.decisoes || {}, parecer: limpar(b.parecer, 8000) }), 60000),
+        this.x("UPDATE sessoes SET revisao = ?, situacao_final = ? WHERE id = ?", limpar(JSON.stringify({ decisoes: b.decisoes || {}, parecer: limpar(b.parecer, 8000) }), 60000),
           ["valida", "invalidada", ""].indexOf(b.situacaoFinal) >= 0 ? b.situacaoFinal : (s.situacao_final || ""), s.id);
         return json({ ok: true });
       }
@@ -635,7 +789,7 @@ export class Banco extends DurableObject {
     const existente = idAluno ? this.um("SELECT codigo FROM convites WHERE prova = ? AND aluno_id = ?", prova, idAluno) : null;
     if (existente) return existente.codigo;
     const codigo = codigoConvite();
-    this.sql.exec("INSERT INTO convites (codigo, prova, aluno_id, nome, email, origem, criado) VALUES (?, ?, ?, ?, ?, ?, ?)", codigo, prova, idAluno || codigo, nome, limpar(a.email, 200).trim(), origem, Date.now());
+    this.x("INSERT INTO convites (codigo, prova, aluno_id, nome, email, origem, criado) VALUES (?, ?, ?, ?, ?, ?, ?)", codigo, prova, idAluno || codigo, nome, limpar(a.email, 200).trim(), origem, Date.now());
     return codigo;
   }
   convitesDe(prova, origem) {
@@ -684,6 +838,7 @@ export class Banco extends DurableObject {
     const meta = ler(s.gravacoes, {}), gravacoes = { tela: [], camera: [] }, fimT = (s.encerrada || Date.now()) - s.criada;
     for (const tipo of ["tela", "camera"]) {
       const partes = await listar(this.env, `sessoes/${s.id}/gravacao/${tipo}/`), porSeg = {};
+      this.contar("opsA", 1 + Math.floor(partes.length / 1000));
       partes.forEach((x) => { const seg = parseInt(x.chave.split("/")[4], 10); (porSeg[seg] = porSeg[seg] || { bytes: 0, partes: 0 }); porSeg[seg].bytes += x.bytes; porSeg[seg].partes++; });
       Object.keys(porSeg).map(Number).sort((a, b) => a - b).forEach((seg) => {
         const m = ((meta[tipo] || []).filter((g) => g.segmento === seg)[0]) || {};
@@ -716,10 +871,11 @@ export class Banco extends DurableObject {
 
   async excluirSessao(id) {
     const itens = await listar(this.env, `sessoes/${id}/`);
+    this.contar("opsA", 1 + Math.floor(itens.length / 1000)); delete this.pend[id]; this.totalBytes = null;
     for (let i = 0; i < itens.length; i += 500) await this.env.ARQUIVOS.delete(itens.slice(i, i + 500).map((x) => x.chave));
-    ["respostas", "eventos", "telemetria", "conversa", "comandos", "ao_vivo"].forEach((t) => this.sql.exec(`DELETE FROM ${t} WHERE sessao = ?`, id));
-    this.sql.exec("UPDATE convites SET sessao = NULL WHERE sessao = ?", id);
-    this.sql.exec("DELETE FROM sessoes WHERE id = ?", id);
+    ["respostas", "eventos", "telemetria", "conversa", "comandos", "ao_vivo"].forEach((t) => this.x(`DELETE FROM ${t} WHERE sessao = ?`, id));
+    this.x("UPDATE convites SET sessao = NULL WHERE sessao = ?", id);
+    this.x("DELETE FROM sessoes WHERE id = ?", id);
   }
 
   /* Retenção: sessões encerradas há mais dias do que o prazo configurado são excluídas todo dia. */
@@ -761,7 +917,7 @@ export class Banco extends DurableObject {
         registro.status = r.status;
       } catch (e) { registro.status = 0; registro.erro = String((e && e.message) || e); }
     }
-    this.sql.exec("UPDATE sessoes SET pionira = ? WHERE id = ?", JSON.stringify(registro), s.id);
+    this.x("UPDATE sessoes SET pionira = ? WHERE id = ?", JSON.stringify(registro), s.id);
     return json({ ok: true, ...registro });
   }
 
