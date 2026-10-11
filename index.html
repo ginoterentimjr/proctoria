@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Proctoria v0.1</title>
+<title>Proctoria v0.2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
@@ -71,11 +71,14 @@ details>div{display:grid;gap:14px;margin-top:14px}
 .arquivos li{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--linha)}
 .arquivos span{min-width:0;overflow-wrap:anywhere}
 .arquivos small{display:block;color:var(--tinta2);font-size:16px}
+/* painel de demonstração da engine à direita: a prova cede o espaço */
+@media (min-width:1180px){html.pct-com-sinais .pagina{margin-right:310px;margin-left:auto}}
+.linha-campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
 </style>
 </head>
 <body>
 <div class="pagina">
-  <header class="marca"><b>Proctoria</b><span>Versão 0.1 de demonstração</span></header>
+  <header class="marca"><b>Proctoria</b><span>Versão 0.2 de demonstração</span></header>
 
   <!-- INÍCIO -->
   <main id="v-inicio">
@@ -83,12 +86,18 @@ details>div{display:grid;gap:14px;margin-top:14px}
     <p class="entrada">Esta página demonstra a engine em uma prova ilustrativa de quatro questões. O percurso reproduz a experiência do participante e, ao final, abre o painel de auditoria da sessão.</p>
     <div class="duas">
       <ol class="percurso">
-        <li><div><strong>Verificação do ambiente</strong>Câmera, microfone com captação de voz, monitor único e tela inteira compartilhada.</div></li>
+        <li><div><strong>Verificação do ambiente</strong>Câmera, microfone com captação de voz, monitor único, tela inteira compartilhada e registro da área de trabalho.</div></li>
         <li><div><strong>Calibragem do olhar</strong>Nove pontos na tela, em cerca de vinte segundos.</div></li>
-        <li><div><strong>Prova monitorada</strong>Cópia, colagem e atalhos bloqueados. Saída da janela, da tela cheia ou do compartilhamento suspende a prova. Rosto, olhar e voz geram sinais para revisão.</div></li>
+        <li><div><strong>Prova monitorada</strong>Cópia, colagem e atalhos bloqueados. Olhar, rosto e voz geram advertência na tela e, se a condição continuar, suspensão. Saída da janela ou da tela cheia suspende de imediato. Na terceira suspensão, a prova fica bloqueada até a liberação do administrador.</div></li>
         <li><div><strong>Auditoria</strong>Registro completo da sessão, evidências de cada ocorrência e gravação integral da tela e da câmera.</div></li>
       </ol>
-      <form class="ficha" id="ficha" autocomplete="off">
+      <div class="ficha" id="lancador">
+        <h2>Janela exclusiva da prova</h2>
+        <p class="nota" style="margin:0">A prova abre em uma janela própria, sem outras abas. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
+        <div class="acoes"><button class="botao" type="button" id="abrir-janela">Abrir a prova em janela exclusiva</button></div>
+        <p class="alerta" id="aviso-janela" role="status" hidden></p>
+      </div>
+      <form class="ficha" id="ficha" autocomplete="off" hidden>
         <label class="campo" for="nome">Nome do participante
           <input type="text" id="nome" value="Participante de teste" maxlength="80" required>
         </label>
@@ -98,13 +107,26 @@ details>div{display:grid;gap:14px;margin-top:14px}
         <details>
           <summary>Regras desta sessão</summary>
           <div>
-            <label class="campo" for="limite">Suspensões toleradas antes do encerramento (0 para não limitar)
-              <input type="number" id="limite" min="0" max="20" value="3">
-            </label>
+            <div class="linha-campos">
+              <label class="campo" for="limite">Suspensões até o bloqueio da prova (0 para não bloquear)
+                <input type="number" id="limite" min="0" max="20" value="3">
+              </label>
+              <label class="campo" for="codigo">Código de liberação do administrador
+                <input type="text" id="codigo" value="2468" maxlength="20">
+              </label>
+            </div>
+            <div class="linha-campos">
+              <label class="campo" for="aviso-seg">Olhar ou rosto fora: segundos até a advertência
+                <input type="number" id="aviso-seg" min="0.5" max="30" step="0.5" value="2">
+              </label>
+              <label class="campo" for="susp-seg">Segundos adicionais até a suspensão
+                <input type="number" id="susp-seg" min="1" max="60" step="0.5" value="4">
+              </label>
+            </div>
             <label class="marcar" for="r-tela-inteira"><input type="checkbox" id="r-tela-inteira" checked><span>Exigir o compartilhamento da tela inteira, recusando janela ou aba</span></label>
             <label class="marcar" for="r-gravar-tela"><input type="checkbox" id="r-gravar-tela" checked><span>Gravar a tela e o áudio durante toda a sessão</span></label>
             <label class="marcar" for="r-gravar-camera"><input type="checkbox" id="r-gravar-camera" checked><span>Gravar a câmera durante toda a sessão</span></label>
-            <label class="marcar" for="r-sinais"><input type="checkbox" id="r-sinais" checked><span>Exibir o painel de sinais durante a prova (recurso de demonstração, oculto ao participante em uso real)</span></label>
+            <label class="marcar" for="r-sinais"><input type="checkbox" id="r-sinais" checked><span>Exibir o painel de demonstração, com as leituras e os alertas ao vivo (oculto ao participante em uso real)</span></label>
           </div>
         </details>
         <div class="acoes"><button class="botao" type="submit" id="iniciar" disabled>Iniciar verificação</button></div>
@@ -177,6 +199,22 @@ details>div{display:grid;gap:14px;margin-top:14px}
     window.scrollTo(0, 0);
   }
 
+  var EXCLUSIVA = window.name === "proctoria-prova";
+  function mostrarFicha(aviso) {
+    $("lancador").hidden = true; $("ficha").hidden = false;
+    if (aviso) { $("aviso-inicio").textContent = aviso; $("aviso-inicio").hidden = false; }
+  }
+  if (EXCLUSIVA) mostrarFicha();
+  $("abrir-janela").addEventListener("click", function () {
+    var w = Math.min(1360, screen.availWidth - 80), h = Math.min(860, screen.availHeight - 80);
+    var janela = null;
+    try { janela = window.open(location.pathname + location.search, "proctoria-prova", "popup=yes,width=" + w + ",height=" + h + ",left=40,top=40"); } catch (e) {}
+    if (!janela) { mostrarFicha("O navegador impediu a abertura da janela exclusiva. A prova prossegue nesta aba."); return; }
+    $("abrir-janela").disabled = true;
+    $("aviso-janela").textContent = "A prova foi aberta em uma janela exclusiva. Esta aba pode ser fechada.";
+    $("aviso-janela").hidden = false;
+  });
+
   $("consentimento").addEventListener("change", function () { $("iniciar").disabled = !this.checked; });
 
   $("ficha").addEventListener("submit", function (e) {
@@ -185,12 +223,25 @@ details>div{display:grid;gap:14px;margin-top:14px}
     var nome = $("nome").value.trim() || "Participante de teste";
     $("aviso-inicio").hidden = true;
     respostas = QUESTOES.map(function () { return null; }); atual = 0;
+    $("iniciar").disabled = true;
+    var avisoSeg = Math.max(0.5, parseFloat($("aviso-seg").value) || 2), suspSeg = Math.max(1, parseFloat($("susp-seg").value) || 4);
+    var codigo = $("codigo").value.trim();
+    (codigo ? Proctoria.resumoSHA256(codigo) : Promise.resolve(null)).then(function (hash) { iniciarSessao(nome, hash, avisoSeg, suspSeg); });
+  });
+
+  function iniciarSessao(nome, hash, avisoSeg, suspSeg) {
     sessao = Proctoria.criar({
       aluno: { id: nome.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "participante", nome: nome },
       prova: { id: "demonstracao-v01", titulo: "Prova ilustrativa da demonstração" },
       areaDaProva: $("area-prova"),
       regras: {
         limiteSuspensoes: Math.max(0, parseInt($("limite").value, 10) || 0),
+        liberacaoHash: hash,
+        sinais: {
+          olhar_fora: { avisoSeg: avisoSeg, suspensaoSeg: suspSeg },
+          cabeca_fora: { avisoSeg: avisoSeg, suspensaoSeg: suspSeg },
+          rosto_ausente: { avisoSeg: avisoSeg }
+        },
         exigirTelaInteiraCompartilhada: $("r-tela-inteira").checked,
         gravarTela: $("r-gravar-tela").checked,
         gravarCamera: $("r-gravar-camera").checked,
@@ -207,10 +258,11 @@ details>div{display:grid;gap:14px;margin-top:14px}
       relogioId = setInterval(function () { $("relogio").textContent = ProctoriaPainel.relogio(Date.now() - inicioRelogio); }, 500);
     }, function () {
       sessao = null;
+      $("iniciar").disabled = !$("consentimento").checked;
       $("aviso-inicio").textContent = "A verificação foi cancelada. Nenhuma prova foi iniciada.";
       $("aviso-inicio").hidden = false;
     });
-  });
+  }
 
   function desenharQuestao() {
     var q = QUESTOES[atual], caixa = $("alternativas");
@@ -254,11 +306,11 @@ details>div{display:grid;gap:14px;margin-top:14px}
     $("confirmar").disabled = false;
     resultado = res;
     res.registro.respostas = respostas.map(function (r, i) { return { questão: i + 1, alternativa: r === null ? null : LETRAS[r] }; });
-    var limite = res.registro.situacao === "encerrada_por_limite";
-    $("titulo-fim").textContent = limite ? "Prova encerrada por limite de suspensões" : "Prova entregue";
+    var limite = res.registro.situacao === "encerrada_durante_bloqueio";
+    $("titulo-fim").textContent = limite ? "Prova encerrada durante o bloqueio" : "Prova entregue";
     var r = res.registro.resumo;
     $("texto-fim").textContent = (limite ? "As respostas registradas até o encerramento foram preservadas. " : "") +
-      "Duração: " + ProctoriaPainel.relogio(r.duracaoProvaMs) + ". Suspensões: " + r.suspensoes + ". Sinais para revisão: " + r.sinaisParaRevisao + ". Ações bloqueadas: " + r.acoesBloqueadas + ".";
+      "Duração: " + ProctoriaPainel.relogio(r.duracaoProvaMs) + ". Advertências: " + r.advertencias + ". Suspensões: " + r.suspensoes + ". Ações bloqueadas: " + r.acoesBloqueadas + ".";
     var lista = $("arquivos"); lista.textContent = "";
     var json = new Blob([JSON.stringify(res.registro)], { type: "application/json" });
     var itens = [{ nome: res.nomeBase + "_registro.json", blob: json, rotulo: "Registro da sessão", nota: "Ocorrências, evidências, telemetria e respostas" }];

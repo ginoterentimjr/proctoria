@@ -1,8 +1,8 @@
-/*! Proctoria 0.1.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.2.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.1.0";
+  var VERSAO = "0.2.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",
@@ -13,18 +13,25 @@
     exigirTelaCheia: true,
     exigirTelaInteiraCompartilhada: true,
     exigirMonitorUnico: true,
-    limiteSuspensoes: 3,          // suspensões toleradas; 0 = sem limite
-    rostoAusenteSeg: 3,
-    maisDeUmRostoSeg: 2,
-    cabecaForaSeg: 3,
+    limiteSuspensoes: 3,          // na suspensão deste número a prova fica bloqueada até a liberação do administrador; 0 = sem bloqueio
+    liberacaoHash: null,          // SHA-256 do código de liberação (Proctoria.resumoSHA256); nulo = liberação apenas por sessao.liberar()
+    /* Cada sinal: advertência depois de avisoSeg contínuos; suspensão se persistir por mais suspensaoSeg;
+       suspensão também na advertência de número "reincidencia" dentro de reincidenciaJanelaMin. */
+    sinais: {
+      olhar_fora:       { avisoSeg: 2,   suspensaoSeg: 4, reincidencia: 4 },
+      cabeca_fora:      { avisoSeg: 2,   suspensaoSeg: 4, reincidencia: 4 },
+      rosto_ausente:    { avisoSeg: 2,   suspensaoSeg: 3, reincidencia: 3 },
+      mais_de_um_rosto: { avisoSeg: 1.5, suspensaoSeg: 3, reincidencia: 2 },
+      voz:              { avisoSeg: 1,   suspensaoSeg: 4, reincidencia: 3 }
+    },
+    reincidenciaJanelaMin: 5,
     cabecaYawGraus: 28,
     cabecaPitchGraus: 22,
-    olharForaSeg: 3,
     olharMargem: 0.3,             // fração da tela além da borda
     calibragemDesvioMax: 0.3,     // desvio médio aceito, em fração da tela
     vozLimiarDb: 12,              // acima do ruído de fundo
     vozDominanciaDb: 4,           // graves acima dos agudos, para separar voz de teclado
-    vozJanelaSeg: 1.5,
+    vozJanelaSeg: 1.2,
     microfoneSemSinalSeg: 10,
     capturaPeriodicaSeg: 60,
     telemetriaSeg: 1,
@@ -40,7 +47,22 @@
     compartilhamento: "Compartilhamento de tela interrompido",
     camera: "Câmera interrompida",
     microfone: "Microfone interrompido",
-    monitor: "Monitor adicional conectado"
+    monitor: "Monitor adicional conectado",
+    olhar_fora: "Olhar mantido fora da tela",
+    cabeca_fora: "Cabeça mantida fora da tela",
+    rosto_ausente: "Rosto mantido fora da imagem",
+    mais_de_um_rosto: "Mais de um rosto mantido na imagem",
+    voz: "Som de voz mantido no ambiente",
+    reincidencia: "Reincidência de advertências"
+  };
+
+  /* Advertências exibidas ao participante: título e orientação. */
+  var MENSAGENS = {
+    olhar_fora: ["Olhar fora da tela", "Volte o olhar para a prova."],
+    cabeca_fora: ["Cabeça voltada para fora da tela", "Volte-se para a prova."],
+    rosto_ausente: ["Rosto ausente da imagem", "Posicione-se diante da câmera."],
+    mais_de_um_rosto: ["Mais de uma pessoa na imagem", "Apenas o participante permanece diante da câmera."],
+    voz: ["Som de voz detectado", "A prova é individual e realizada em silêncio."]
   };
 
   /* ------------------------------------------------------------------ */
@@ -68,32 +90,46 @@
 
   function limitar(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function arred(x, casas) { var p = Math.pow(10, casas || 0); return Math.round(x * p) / p; }
+  function segundos(ms) { return (ms / 1000).toFixed(1).replace(".", ",") + " segundos"; }
+  function relogioCurto(ms) { var t = Math.max(0, Math.round(ms / 1000)), m = Math.floor(t / 60), r = t % 60; return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r; }
+  function resumoSHA256(texto) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(texto))).then(function (b) {
+      return Array.prototype.map.call(new Uint8Array(b), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+    });
+  }
 
-  /* Condição sustentada: abre depois de aposMs contínuos e fecha depois de soltaMs sem o sinal. */
-  function Condicao(aposMs, soltaMs, aoAbrir, aoFechar) {
-    this.aposMs = aposMs; this.soltaMs = soltaMs;
-    this.aoAbrir = aoAbrir; this.aoFechar = aoFechar;
-    this.desde = null; this.soltaDesde = null; this.aberta = null;
+  /* Condição sustentada em dois estágios: adverte depois de avisoMs contínuos; se o sinal persistir por mais
+     escalaMs, escala; fecha depois de soltaMs sem o sinal. Falhas de leitura de até 300 ms não reiniciam a contagem. */
+  function Condicao(avisoMs, escalaMs, soltaMs, aoAbrir, aoEscalar, aoFechar) {
+    this.avisoMs = avisoMs; this.escalaMs = escalaMs; this.soltaMs = soltaMs;
+    this.aoAbrir = aoAbrir; this.aoEscalar = aoEscalar; this.aoFechar = aoFechar;
+    this.desde = null; this.soltaDesde = null; this.falhaDesde = null; this.aberta = null;
   }
   Condicao.prototype.atualizar = function (ativo, agora, contexto) {
     if (ativo) {
-      this.soltaDesde = null;
+      this.soltaDesde = null; this.falhaDesde = null;
       if (this.desde === null) this.desde = agora;
-      if (!this.aberta && agora - this.desde >= this.aposMs) {
-        this.aberta = { inicio: this.desde, ref: this.aoAbrir(contexto, this.desde) };
+      if (!this.aberta) {
+        if (agora - this.desde >= this.avisoMs) {
+          this.aberta = { inicio: this.desde, avisoEm: agora, escalou: false, ref: null };
+          this.aberta.ref = this.aoAbrir(contexto, this.desde);
+        }
+      } else if (!this.aberta.escalou && this.escalaMs > 0 && agora - this.aberta.avisoEm >= this.escalaMs) {
+        this.aberta.escalou = true;
+        this.aoEscalar(this.aberta.ref, contexto, agora - this.aberta.inicio);
       }
-    } else {
-      if (this.aberta) {
-        if (this.soltaDesde === null) this.soltaDesde = agora;
-        if (agora - this.soltaDesde >= this.soltaMs) this.fechar(this.soltaDesde);
-      } else {
-        this.desde = null;
-      }
+    } else if (this.aberta) {
+      if (this.soltaDesde === null) this.soltaDesde = agora;
+      if (agora - this.soltaDesde >= this.soltaMs) this.fechar(this.soltaDesde);
+    } else if (this.desde !== null) {
+      if (this.falhaDesde === null) this.falhaDesde = agora;
+      if (agora - this.falhaDesde > 300) { this.desde = null; this.falhaDesde = null; }
     }
   };
   Condicao.prototype.fechar = function (agora) {
-    if (this.aberta) { this.aoFechar(this.aberta.ref, agora - this.aberta.inicio); }
-    this.aberta = null; this.desde = null; this.soltaDesde = null;
+    var a = this.aberta;
+    this.aberta = null; this.desde = null; this.soltaDesde = null; this.falhaDesde = null;
+    if (a) this.aoFechar(a.ref, agora - a.inicio);
   };
 
   /* ------------------------------------------------------------------ */
@@ -217,7 +253,23 @@
     ".pct-alvo.pct-coleta{animation:pct-fecha 1.3s linear forwards}",
     "@keyframes pct-fecha{from{transform:scale(1)}to{transform:scale(.45)}}",
     ".pct-motivos{margin:4px 0 0;padding:0 0 0 22px;display:grid;gap:4px}",
-    ".pct-sinais{position:fixed;right:14px;bottom:14px;z-index:2147482000;width:230px;background:rgba(27,21,18,.94);color:#FAF5EC;border:1px solid rgba(201,154,87,.5);border-radius:6px;padding:10px;font:500 13px/1.45 Poppins,'Segoe UI',system-ui,sans-serif;pointer-events:none}",
+    ".pct-sinais{position:fixed;right:14px;top:14px;z-index:2147483300;width:272px;max-height:calc(100vh - 28px);overflow:hidden;background:rgba(27,21,18,.96);color:#FAF5EC;border:1px solid rgba(201,154,87,.5);border-radius:6px;padding:12px;font:500 14px/1.45 Poppins,'Segoe UI',system-ui,sans-serif;pointer-events:none}",
+    ".pct-sinais h3{font:600 12px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#C99A57;margin:0 0 8px}",
+    ".pct-sinais h3+dl,.pct-sinais dl+h3{margin-top:10px}",
+    ".pct-feed{list-style:none;margin:0;padding:0;display:grid;gap:6px}",
+    ".pct-feed li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;line-height:1.3;padding-left:8px;border-left:3px solid #8d7f6c}",
+    ".pct-feed i{font-style:normal;font-variant-numeric:tabular-nums;color:#b7a892}",
+    ".pct-feed .pct-f-suspensao{border-left-color:#EE7C68}.pct-feed .pct-f-revisao{border-left-color:#E8B44C}.pct-feed .pct-f-bloqueio{border-left-color:#8FA7BF}",
+    ".pct-feed:empty::after{content:'Nenhum alerta até o momento.';color:#b7a892}",
+    ".pct-advertencias{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:2147482900;display:grid;gap:8px;width:min(640px,calc(100vw - 32px));pointer-events:none}",
+    ".pct-adv{background:#1B1512;color:#FAF5EC;border-left:8px solid #E8B44C;border-radius:6px;padding:14px 18px;box-shadow:0 8px 28px rgba(27,21,18,.35);font:400 18px/1.4 Lora,Georgia,serif}",
+    ".pct-adv b{display:block;font:600 13px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#E8B44C;margin-bottom:4px}",
+    ".pct-adv strong{font:600 20px/1.3 Poppins,'Segoe UI',system-ui,sans-serif}",
+    ".pct-adv small{display:block;font:500 16px/1.35 Poppins,'Segoe UI',system-ui,sans-serif;color:#e9dcc6;margin-top:6px}",
+    ".pct-adv.pct-fim{border-left-color:#8d7f6c}.pct-adv.pct-fim b{color:#b7a892}",
+    ".pct-rotulo{display:block;font:500 16px/1.3 Poppins,'Segoe UI',system-ui,sans-serif;margin:18px 0 6px}",
+    ".pct-campo{font:500 22px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;letter-spacing:.12em;color:#1B1512;background:#FAF5EC;border:0;border-radius:6px;padding:13px 14px;width:min(320px,100%)}",
+    ".pct-campo:focus-visible{outline:3px solid #E5662C;outline-offset:3px}",
     ".pct-sinais video{width:100%;aspect-ratio:4/3;object-fit:cover;transform:scaleX(-1);border-radius:3px;display:block;margin-bottom:8px;background:#0d0a08}",
     ".pct-sinais dl{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;margin:0}",
     ".pct-sinais dt{color:#C99A57}.pct-sinais dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}",
@@ -241,7 +293,12 @@
   function Sessao(cfg) {
     cfg = cfg || {};
     this.cfg = cfg;
+    var eu = this, sinaisCfg = (cfg.regras || {}).sinais || {};
     this.regras = Object.assign({}, REGRAS_PADRAO, cfg.regras || {});
+    this.regras.sinais = {};
+    Object.keys(REGRAS_PADRAO.sinais).forEach(function (k) {
+      eu.regras.sinais[k] = Object.assign({}, REGRAS_PADRAO.sinais[k], sinaisCfg[k] || {});
+    });
     this.recursos = Object.assign({}, RECURSOS_PADRAO, cfg.recursos || {});
     this.aluno = cfg.aluno || { id: "sem-id", nome: "" };
     this.prova = cfg.prova || { id: "sem-id", titulo: "" };
@@ -255,7 +312,13 @@
     this._telemetria = [];
     this._gravacoes = { tela: [], camera: [] };
     this._nEvidencias = 0;
-    this._ocorrencias = 0;
+    this._ocorrencias = 0;        // suspensões na sessão
+    this._ciclo = 0;              // suspensões desde a última liberação do administrador
+    this._nAdvertencias = 0;
+    this._nBloqueios = 0;
+    this._nLiberacoes = 0;
+    this._avisos = {};            // instantes das advertências recentes, por sinal
+    this._advAtivas = {};
     this._tempoSuspensoMs = 0;
     this._suspensao = null;
     this._sinais = { rostos: 0 };
@@ -308,6 +371,7 @@
     if (op.dados) ev.dados = op.dados;
     if (op.evidencia) ev.evidencias = this._evidencias();
     this._eventos.push(ev);
+    if (this._feed && classe !== "atividade") this._alimentar(ev);
     if (this.cfg.aoEvento) { try { this.cfg.aoEvento(ev); } catch (e) {} }
     return ev;
   };
@@ -347,7 +411,8 @@
       ["camera", "Câmera ativa"],
       ["rosto", "Um rosto identificado na imagem"],
       ["microfone", "Microfone ativo e captando voz"],
-      ["tela", "Tela inteira compartilhada"]
+      ["tela", "Tela inteira compartilhada"],
+      ["ambiente", "Área de trabalho declarada e registrada"]
     ];
     var lista = el("ol", { class: "pct-lista" });
     definicoes.forEach(function (d) {
@@ -414,7 +479,7 @@
 
   Sessao.prototype._atualizarVerificacao = function () {
     if (!this._itens) return;
-    var s = this._sinais, agora = performance.now();
+    var s = this._sinais, agora = performance.now(), b = this._botao;
     this._item("monitor", this._monitorUnico() ? "conforme" : "nao",
       this._monitorUnico() ? "" : "Desconecte o monitor adicional e mantenha apenas a tela principal.");
 
@@ -444,15 +509,21 @@
     if (this._telaStream) {
       this._telaOk = this._trilhaViva(this._telaStream, "video", true);
       this._item("tela", this._telaOk ? "conforme" : "nao", this._telaOk ? "" : "O compartilhamento foi interrompido. Compartilhe a tela inteira novamente.");
-      if (!this._telaOk && this._etapa === "calibrar") { this._etapa = "tela"; }
+      if (!this._telaOk && (this._etapa === "calibrar" || this._etapa === "ambiente")) {
+        this._etapa = "tela"; this._ambienteOk = false; this._item("ambiente", "pendente", "");
+      }
     }
-    if (this._etapa === "midia") { this._botao.textContent = "Ativar câmera e microfone"; this._botao.disabled = !this._compativel || this._ocupado; }
-    else if (this._etapa === "tela") { this._botao.textContent = "Compartilhar a tela inteira"; this._botao.disabled = !!this._ocupado; }
+    if (this._etapa === "midia") { b.textContent = "Ativar câmera e microfone"; b.disabled = !this._compativel || !!this._ocupado; }
+    else if (this._etapa === "tela") { b.textContent = "Compartilhar a tela inteira"; b.disabled = !!this._ocupado; this._aviso.textContent = ""; }
+    else if (this._etapa === "ambiente") {
+      b.textContent = "Declarar e registrar a área de trabalho"; b.disabled = !!this._ocupado;
+      this._aviso.textContent = "Feche as demais abas, os outros navegadores e os aplicativos alheios à prova. Ao confirmar, a imagem da tela neste instante fica registrada para a auditoria.";
+    }
     else if (this._etapa === "calibrar") {
-      this._botao.textContent = "Entrar em tela cheia e calibrar o olhar";
-      var tudo = this._monitorUnico() && this._rostoOk && this._micOk && this._telaOk && this._trilhaViva(this._camStream, "video");
-      this._botao.disabled = !tudo || !!this._ocupado;
-      this._aviso.textContent = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "";
+      b.textContent = "Entrar em tela cheia e calibrar o olhar";
+      var tudo = this._monitorUnico() && this._rostoOk && this._micOk && this._telaOk && this._ambienteOk && this._trilhaViva(this._camStream, "video");
+      b.disabled = !tudo || !!this._ocupado;
+      this._aviso.textContent = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "Os itens em verificação precisam estar conformes para prosseguir.";
     }
   };
 
@@ -462,7 +533,17 @@
     this._ocupado = true;
     var fim = function () { eu._ocupado = false; eu._atualizarVerificacao(); };
     if (this._etapa === "midia") this._abrirMidia().then(function (ok) { if (ok) eu._etapa = "tela"; }).then(fim, fim);
-    else if (this._etapa === "tela") this._abrirTela().then(function (ok) { if (ok) eu._etapa = "calibrar"; }).then(fim, fim);
+    else if (this._etapa === "tela") this._abrirTela().then(function (ok) { if (ok) eu._etapa = "ambiente"; }).then(fim, fim);
+    else if (this._etapa === "ambiente") {
+      var imagem = this._quadro(this._telaVideo, 1600, 0.6);
+      if (imagem) {
+        var ev = this._evento("sistema", "ambiente", "Área de trabalho registrada antes da prova",
+          "O participante declarou ter fechado as demais abas, os outros navegadores e os aplicativos alheios à prova.");
+        ev.evidencias = { tela: imagem };
+        this._ambienteOk = true; this._item("ambiente", "conforme", ""); this._etapa = "calibrar";
+      }
+      fim();
+    }
     else if (this._etapa === "calibrar") {
       this._entrarTelaCheia().then(function () {
         clearInterval(eu._tickVerif); eu._itens = null;
@@ -717,10 +798,15 @@
     if (this._fase !== "prova") return;
     var agora = instante;
     if (!this._suspensao) {
-      if (!this._vozEvento && v.taxa >= 0.5) this._abrirVoz();
+      if (!this._vozEvento && v.taxa >= 0.45) this._abrirVoz();
       else if (this._vozEvento) {
-        this._vozEvento.pico = Math.max(this._vozEvento.pico, fala - v.piso);
+        var reg = this._vozEvento, limiteVoz = r.sinais.voz.suspensaoSeg * 1000;
+        reg.pico = Math.max(reg.pico, fala - v.piso);
         if (v.taxa <= 0.1) this._fecharVoz();
+        else if (!reg.escalou && limiteVoz > 0 && agora - reg.inicio >= limiteVoz) {
+          reg.escalou = true;
+          this._suspender("voz", "Som de voz mantido por " + segundos(agora - reg.inicio) + " depois da advertência.");
+        }
       }
     }
     var mudo = fala < -110;
@@ -740,8 +826,9 @@
   Sessao.prototype._abrirVoz = function () {
     var eu = this;
     var ev = this._evento("revisao", "voz", "Som de voz no ambiente", null, { evidencia: true });
-    var reg = { evento: ev, inicio: performance.now(), pico: 0 };
+    var reg = { evento: ev, inicio: performance.now(), pico: 0, escalou: false };
     this._vozEvento = reg;
+    this._advertir("voz", ev);
     try {
       var rec = new MediaRecorder(new MediaStream(this._camStream.getAudioTracks()), { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 24000 });
       var partes = [];
@@ -761,6 +848,7 @@
     var reg = this._vozEvento;
     if (!reg) return;
     this._vozEvento = null;
+    this._encerrarAdvertencia("voz");
     reg.evento.duracaoMs = Math.round(performance.now() - reg.inicio);
     reg.evento.detalhe = "Intensidade máxima de " + arred(reg.pico, 0) + " dB acima do ruído de fundo.";
     clearTimeout(reg.limite);
@@ -880,27 +968,31 @@
     document.documentElement.classList.add("pct-em-prova");
     if (this.area) this.area.classList.add("pct-area");
 
-    var abrir = function (tipo, titulo, detalhar) {
-      return function (s, desde) {
-        var ev = eu._evento("revisao", tipo, titulo, detalhar ? detalhar(s) : null, { evidencia: true });
-        ev.detectadoT = ev.t;
-        ev.t = Math.max(0, ev.t - Math.round(performance.now() - desde));
-        return ev;
-      };
+    var criar = function (tipo, titulo, detalhar) {
+      var c = r.sinais[tipo];
+      return new Condicao(c.avisoSeg * 1000, c.suspensaoSeg * 1000, 700,
+        function (sinais, desde) {
+          var ev = eu._evento("revisao", tipo, titulo, detalhar ? detalhar(sinais) : null, { evidencia: true });
+          ev.detectadoT = ev.t;
+          ev.t = Math.max(0, ev.t - Math.round(performance.now() - desde));
+          eu._advertir(tipo, ev);
+          return ev;
+        },
+        function (ev, sinais, ms) { eu._suspender(tipo, "Condição mantida por " + segundos(ms) + ", com advertência exibida."); },
+        function (ev, ms) { if (ev) ev.duracaoMs = Math.round(ms); eu._encerrarAdvertencia(tipo); });
     };
-    var fechar = function (ev, ms) { ev.duracaoMs = Math.round(ms); };
     this._cond = {
-      ausente: new Condicao(r.rostoAusenteSeg * 1000, 700, abrir("rosto_ausente", "Rosto ausente da imagem"), fechar),
-      varios: new Condicao(r.maisDeUmRostoSeg * 1000, 700, abrir("mais_de_um_rosto", "Mais de um rosto na imagem"), fechar),
-      cabeca: new Condicao(r.cabecaForaSeg * 1000, 700, abrir("cabeca_fora", "Cabeça voltada para fora da tela", function (s) {
-        return "Desvio de " + Math.round(Math.abs(s.dYaw)) + "° na horizontal e " + Math.round(Math.abs(s.dPitch)) + "° na vertical em relação à posição calibrada.";
-      }), fechar),
-      olhar: new Condicao(r.olharForaSeg * 1000, 700, abrir("olhar_fora", "Olhar fora da tela", function (s) {
+      ausente: criar("rosto_ausente", "Rosto ausente da imagem"),
+      varios: criar("mais_de_um_rosto", "Mais de um rosto na imagem"),
+      cabeca: criar("cabeca_fora", "Cabeça voltada para fora da tela", function (sinais) {
+        return "Desvio de " + Math.round(Math.abs(sinais.dYaw)) + "° na horizontal e " + Math.round(Math.abs(sinais.dPitch)) + "° na vertical em relação à posição calibrada.";
+      }),
+      olhar: criar("olhar_fora", "Olhar fora da tela", function (sinais) {
         var lados = [];
-        if (s.gx < 0) lados.push("à esquerda"); if (s.gx > 1) lados.push("à direita");
-        if (s.gy < 0) lados.push("acima"); if (s.gy > 1) lados.push("abaixo");
+        if (sinais.gx < 0) lados.push("à esquerda"); if (sinais.gx > 1) lados.push("à direita");
+        if (sinais.gy < 0) lados.push("acima"); if (sinais.gy > 1) lados.push("abaixo");
         return "Direção estimada: " + (lados.join(" e ") || "limite da tela") + ".";
-      }), fechar)
+      })
     };
 
     this._evento("sistema", "prova_iniciada", "Prova iniciada", null, {
@@ -1080,11 +1172,69 @@
 
   /* --------------------------- suspensão ---------------------------- */
 
+  /* Advertência ao participante. Devolve verdadeiro quando a reincidência leva à suspensão. */
+  Sessao.prototype._advertir = function (tipo, ev) {
+    var eu = this, agora = performance.now(), c = this.regras.sinais[tipo], janela = this.regras.reincidenciaJanelaMin * 60000;
+    this._nAdvertencias++;
+    ev.dados = ev.dados || {}; ev.dados.advertencia = this._nAdvertencias;
+    var recentes = (this._avisos[tipo] || []).filter(function (t) { return agora - t < janela; });
+    recentes.push(agora); this._avisos[tipo] = recentes;
+    this._mostrarAdvertencia(tipo, c.suspensaoSeg * 1000);
+    if (c.reincidencia > 0 && recentes.length >= c.reincidencia) {
+      this._avisos[tipo] = [];
+      var texto = recentes.length + " advertências por " + MENSAGENS[tipo][0].toLowerCase() + " em " + this.regras.reincidenciaJanelaMin + " minutos.";
+      setTimeout(function () { eu._suspender("reincidencia", texto); }, 0);
+      return true;
+    }
+    return false;
+  };
+
+  Sessao.prototype._mostrarAdvertencia = function (tipo, prazoMs) {
+    var eu = this, m = MENSAGENS[tipo];
+    if (!this._advCaixa) {
+      this._advCaixa = el("div", { class: "pct-advertencias", "aria-live": "assertive" });
+      document.body.appendChild(this._advCaixa);
+      this._temporizadores.push(setInterval(function () { eu._atualizarAdvertencias(); }, 200));
+    }
+    this._removerAdvertencia(tipo);
+    var prazo = el("small");
+    var caixa = el("div", { class: "pct-adv", role: "alert" }, [
+      el("b", { text: "Advertência " + this._nAdvertencias }), el("strong", { text: m[0] + ". " }), document.createTextNode(m[1]), prazo
+    ]);
+    this._advAtivas[tipo] = { el: caixa, prazo: prazo, limite: prazoMs > 0 ? performance.now() + prazoMs : null, fim: null };
+    this._advCaixa.appendChild(caixa);
+    this._atualizarAdvertencias();
+  };
+
+  Sessao.prototype._atualizarAdvertencias = function () {
+    var eu = this, agora = performance.now();
+    Object.keys(this._advAtivas).forEach(function (tipo) {
+      var a = eu._advAtivas[tipo];
+      if (a.fim !== null) { if (agora - a.fim > 2500) eu._removerAdvertencia(tipo); return; }
+      if (a.limite === null) { a.prazo.textContent = ""; return; }
+      var resta = Math.max(0, Math.ceil((a.limite - agora) / 1000));
+      a.prazo.textContent = "A prova é suspensa em " + resta + " s se a condição continuar.";
+    });
+  };
+
+  Sessao.prototype._encerrarAdvertencia = function (tipo) {
+    var a = this._advAtivas[tipo];
+    if (!a || a.fim !== null) return;
+    a.fim = performance.now();
+    a.el.className = "pct-adv pct-fim";
+    a.prazo.textContent = "Advertência registrada no histórico da sessão.";
+  };
+
+  Sessao.prototype._removerAdvertencia = function (tipo) {
+    var a = this._advAtivas[tipo];
+    if (a) { a.el.remove(); delete this._advAtivas[tipo]; }
+  };
+
   Sessao.prototype._suspender = function (motivo, detalhe) {
     if (this._fase !== "prova") return;
     if (this._suspensao && this._suspensao.motivos[motivo]) return;
     var eu = this;
-    var ev = this._evento("objetiva", motivo, ROTULOS[motivo] || motivo, detalhe, { evidencia: true });
+    var ev = this._evento("suspensao", motivo, ROTULOS[motivo] || motivo, detalhe, { evidencia: true });
     if (motivo === "foco") {
       setTimeout(function () {
         var depois = eu._quadro(eu._telaVideo, 960, 0.5);
@@ -1096,22 +1246,23 @@
       this._atualizarSuspensao();
       return;
     }
-    this._ocorrencias++;
+    this._ocorrencias++; this._ciclo++;
     ev.dados = { suspensao: this._ocorrencias };
+    var limite = this.regras.limiteSuspensoes, bloqueada = limite > 0 && this._ciclo >= limite;
     var motivos = {}; motivos[motivo] = true;
-    this._suspensao = { inicio: performance.now(), motivos: motivos, eventos: [ev] };
+    this._suspensao = { inicio: performance.now(), motivos: motivos, eventos: [ev], bloqueada: bloqueada };
     Object.keys(this._cond || {}).forEach(function (k) { eu._cond[k].fechar(performance.now()); });
     if (this._vozEvento) this._fecharVoz();
+    Object.keys(this._advAtivas).forEach(function (t) { eu._removerAdvertencia(t); });
     if (this.area) this.area.style.visibility = "hidden";
-    if (this.cfg.aoSuspender) { try { this.cfg.aoSuspender({ motivo: motivo, numero: this._ocorrencias }); } catch (e) {} }
-    var limite = this.regras.limiteSuspensoes;
-    if (limite > 0 && this._ocorrencias > limite) {
-      this._evento("objetiva", "limite_excedido", "Limite de suspensões excedido",
-        "A sessão foi encerrada na suspensão de número " + this._ocorrencias + ", acima das " + limite + " toleradas.");
-      this.encerrar("encerrada_por_limite").then(function (res) { if (eu.cfg.aoEncerrar) eu.cfg.aoEncerrar(res); });
-      return;
-    }
-    this._montarSuspensao();
+    if (this.cfg.aoSuspender) { try { this.cfg.aoSuspender({ motivo: motivo, numero: this._ocorrencias, bloqueada: bloqueada }); } catch (e) {} }
+    if (bloqueada) {
+      this._nBloqueios++;
+      this._suspensao.eventos.push(this._evento("suspensao", "bloqueio_admin", "Prova bloqueada até a liberação do administrador",
+        "Suspensão de número " + this._ciclo + " desde a última liberação; o limite configurado é " + limite + "."));
+      if (this.cfg.aoBloquear) { try { this.cfg.aoBloquear({ numero: this._nBloqueios, motivo: motivo }); } catch (e) {} }
+      this._montarBloqueio();
+    } else this._montarSuspensao();
   };
 
   Sessao.prototype._condicoes = function () {
@@ -1122,7 +1273,62 @@
       { id: "foco", texto: "Janela da prova em primeiro plano", ok: document.hasFocus() && !document.hidden }
     ];
     if (r.exigirMonitorUnico) lista.push({ id: "monitor", texto: "Um único monitor conectado", ok: this._monitorUnico() });
+    if (this._detector) lista.push({ id: "rosto", texto: "Um rosto identificado na imagem", ok: (this._sinais.rostos || 0) === 1 });
     return lista;
+  };
+
+  /* Bloqueio: a retomada depende do administrador (código na tela ou sessao.liberar() chamado pela página). */
+  Sessao.prototype._montarBloqueio = function () {
+    var eu = this, confirmando = false;
+    this._susLista = null;
+    this._susMotivos = el("ul", { class: "pct-motivos" });
+    var campo = el("input", { class: "pct-campo", type: "password", id: "pct-codigo", autocomplete: "off", inputmode: "numeric" });
+    var aviso = el("p", { class: "pct-aviso", role: "status" });
+    var liberar = el("button", { class: "pct-botao", type: "button", text: "Liberar a prova" });
+    var entregar = el("button", { class: "pct-botao pct-sec", type: "button", text: "Encerrar e entregar a prova" });
+    var tentar = function () {
+      if (!eu.regras.liberacaoHash) { aviso.textContent = "Nesta prova, a liberação é feita a distância pelo administrador."; return; }
+      resumoSHA256(campo.value.trim()).then(function (h) {
+        if (h === eu.regras.liberacaoHash) { eu.liberar("código informado na tela do participante"); return; }
+        eu._evento("bloqueio", "codigo_incorreto", "Código de liberação incorreto");
+        aviso.textContent = "Código incorreto."; campo.value = ""; campo.focus();
+      });
+    };
+    liberar.addEventListener("click", tentar);
+    campo.addEventListener("keydown", function (e) { if (e.key === "Enter") tentar(); });
+    entregar.addEventListener("click", function () {
+      if (!confirmando) { confirmando = true; entregar.textContent = "Confirmar o encerramento"; aviso.textContent = "As respostas registradas até este momento são entregues e a sessão segue para auditoria."; return; }
+      entregar.disabled = true;
+      eu.encerrar("encerrada_durante_bloqueio").then(function (res) { if (eu.cfg.aoEncerrar) eu.cfg.aoEncerrar(res); });
+    });
+    this._camada = el("div", { class: "pct-camada", role: "alertdialog", "aria-modal": "true", "aria-label": "Prova bloqueada" }, [
+      el("div", { class: "pct-quadro pct-estreito" }, [
+        el("div", null, [
+          el("p", { class: "pct-sobre", text: "Suspensão " + this._ciclo + " de " + this.regras.limiteSuspensoes }),
+          el("h2", { text: "Prova bloqueada" }),
+          el("p", { text: "O limite de suspensões foi atingido. A retomada depende da liberação do administrador da prova. O tempo de prova segue em contagem." }),
+          el("p", { class: "pct-aviso", text: "Ocorrência registrada:" }),
+          this._susMotivos,
+          el("label", { class: "pct-rotulo", for: "pct-codigo", text: "Código de liberação do administrador" }),
+          campo,
+          el("div", { class: "pct-acoes" }, [liberar, entregar]),
+          aviso
+        ])
+      ])
+    ]);
+    document.body.appendChild(this._camada);
+    this._atualizarSuspensao();
+    try { campo.focus(); } catch (e) {}
+  };
+
+  Sessao.prototype.liberar = function (origem) {
+    var s = this._suspensao;
+    if (!s || !s.bloqueada) return false;
+    s.bloqueada = false; this._ciclo = 0; this._nLiberacoes++;
+    this._evento("sistema", "liberacao", "Prova liberada pelo administrador", origem ? "Origem: " + origem + "." : null);
+    if (this._camada) { this._camada.remove(); this._camada = null; }
+    this._montarSuspensao();
+    return true;
   };
 
   Sessao.prototype._montarSuspensao = function () {
@@ -1132,14 +1338,16 @@
     this._susBotao = el("button", { class: "pct-botao", type: "button", text: "Retomar a prova" });
     this._susAviso = el("p", { class: "pct-aviso" });
     this._susBotao.addEventListener("click", function () { eu._acaoRetomar(); });
-    var contagem = "Suspensão " + this._ocorrencias;
-    if (limite > 0) contagem += " de " + limite + " toleradas" + (this._ocorrencias >= limite ? ". A próxima encerra a sessão" : "");
+    var liberada = this._ciclo === 0;
+    var contagem = liberada ? "Liberação registrada" : "Suspensão " + this._ciclo + (limite > 0 ? " de " + limite : "");
+    var texto = "O tempo de prova segue em contagem. Restabeleça as condições abaixo para retomar.";
+    if (limite > 0 && !liberada) texto += " Na suspensão de número " + limite + ", a retomada passa a depender do administrador da prova.";
     this._camada = el("div", { class: "pct-camada", role: "alertdialog", "aria-modal": "true", "aria-label": "Prova suspensa" }, [
       el("div", { class: "pct-quadro pct-estreito" }, [
         el("div", null, [
           el("p", { class: "pct-sobre", text: contagem }),
-          el("h2", { text: "Prova suspensa" }),
-          el("p", { text: "O tempo de prova segue em contagem. Restabeleça as condições abaixo para retomar." }),
+          el("h2", { text: liberada ? "Prova liberada pelo administrador" : "Prova suspensa" }),
+          el("p", { text: texto }),
           el("p", { class: "pct-aviso", text: "Ocorrência registrada:" }),
           this._susMotivos
         ]),
@@ -1147,16 +1355,20 @@
       ])
     ]);
     document.body.appendChild(this._camada);
+    clearInterval(this._susTick);
     this._susTick = setInterval(function () { eu._atualizarSuspensao(); }, 300);
     this._atualizarSuspensao();
     try { this._susBotao.focus(); } catch (e) {}
   };
 
   Sessao.prototype._atualizarSuspensao = function () {
-    if (!this._suspensao || !this._susLista) return;
+    if (!this._suspensao) return;
     var eu = this;
-    this._susMotivos.textContent = "";
-    Object.keys(this._suspensao.motivos).forEach(function (m) { eu._susMotivos.appendChild(el("li", { text: ROTULOS[m] || m })); });
+    if (this._susMotivos) {
+      this._susMotivos.textContent = "";
+      Object.keys(this._suspensao.motivos).forEach(function (m) { eu._susMotivos.appendChild(el("li", { text: ROTULOS[m] || m })); });
+    }
+    if (!this._susLista) return;
     var cond = this._condicoes();
     this._susLista.textContent = "";
     cond.forEach(function (c) {
@@ -1169,7 +1381,7 @@
     var proxima = !por.camera || !por.microfone ? "midia" : !por.tela ? "tela" : "retomar";
     this._susProxima = proxima;
     this._susBotao.textContent = proxima === "midia" ? "Reativar câmera e microfone" : proxima === "tela" ? "Compartilhar novamente a tela inteira" : "Retomar a prova";
-    this._susBotao.disabled = !!this._ocupado || (proxima === "retomar" && por.monitor === false);
+    this._susBotao.disabled = !!this._ocupado || (proxima === "retomar" && (por.monitor === false || por.rosto === false));
   };
 
   Sessao.prototype._acaoRetomar = function () {
@@ -1219,7 +1431,7 @@
     if (this._camada) { this._camada.remove(); this._camada = null; }
     this._susLista = null;
     if (this.area) this.area.style.visibility = "";
-    this._evento("sistema", "retomada", "Prova retomada", "Suspensão de " + arred(ms / 1000, 1) + " segundos.");
+    this._evento("sistema", "retomada", "Prova retomada", "Suspensão de " + segundos(ms) + ".");
     if (this.cfg.aoRetomar) { try { this.cfg.aoRetomar({ duracaoMs: ms }); } catch (e) {} }
   };
 
@@ -1265,27 +1477,39 @@
     this._sinaisVideo.muted = true; this._sinaisVideo.srcObject = this._camStream;
     var dl = el("dl");
     var campos = {};
-    [["rostos", "Rostos"], ["cabeca", "Cabeça"], ["olhar", "Olhar"], ["voz", "Voz"], ["foco", "Foco"]].forEach(function (c) {
+    [["rostos", "Rostos"], ["cabeca", "Cabeça"], ["olhar", "Olhar"], ["voz", "Voz"], ["foco", "Foco"], ["conta", "Suspensões"]].forEach(function (c) {
       campos[c[0]] = el("dd", { text: "" });
       dl.appendChild(el("dt", { text: c[1] })); dl.appendChild(campos[c[0]]);
     });
-    this._sinaisCaixa = el("div", { class: "pct-sinais", "aria-hidden": "true" }, [this._sinaisVideo, dl]);
+    this._feed = el("ol", { class: "pct-feed" });
+    this._sinaisCaixa = el("div", { class: "pct-sinais", "aria-hidden": "true" }, [
+      el("h3", { text: "Painel de demonstração" }), this._sinaisVideo, dl, el("h3", { text: "Alertas" }), this._feed
+    ]);
     this._mira = el("div", { class: "pct-mira", "aria-hidden": "true" });
     this._mira.hidden = true;
     document.body.appendChild(this._sinaisCaixa); document.body.appendChild(this._mira);
+    document.documentElement.classList.add("pct-com-sinais");
     this._temporizadores.push(setInterval(function () {
-      var s = eu._sinais, v = eu._voz || {};
+      var s = eu._sinais, v = eu._voz || {}, limite = eu.regras.limiteSuspensoes;
       campos.rostos.textContent = String(s.rostos || 0);
       campos.cabeca.textContent = s.rostos ? Math.round(s.dYaw || 0) + "° / " + Math.round(s.dPitch || 0) + "°" + (s.cabecaFora ? " fora" : "") : "sem leitura";
       campos.olhar.textContent = s.gx === undefined ? (eu._calib.modelo ? "sem leitura" : "modo reduzido")
         : Math.round(s.gx * 100) + "% / " + Math.round(s.gy * 100) + "%" + (s.olharFora ? " fora" : "");
       campos.voz.textContent = v.piso === null || v.piso === undefined ? "sem leitura" : Math.round(v.nivel - v.piso) + " dB" + (v.ativa ? " ativa" : "");
       campos.foco.textContent = document.hasFocus() ? "na prova" : "fora";
-      if (s.gx !== undefined && s.rostos) {
+      campos.conta.textContent = eu._ciclo + (limite > 0 ? " de " + limite : "");
+      if (s.gx !== undefined && s.rostos && !eu._suspensao) {
         eu._mira.hidden = false;
         eu._mira.style.left = (limitar(s.gx, 0, 1) * 100) + "%"; eu._mira.style.top = (limitar(s.gy, 0, 1) * 100) + "%";
       } else eu._mira.hidden = true;
     }, 150));
+  };
+
+  Sessao.prototype._alimentar = function (ev) {
+    var t = this._inicioProvaT === undefined ? 0 : ev.t - this._inicioProvaT;
+    var li = el("li", { class: "pct-f-" + ev.classe }, [el("i", { text: relogioCurto(t) }), el("span", { text: ev.titulo })]);
+    this._feed.insertBefore(li, this._feed.firstChild);
+    while (this._feed.children.length > 7) this._feed.removeChild(this._feed.lastChild);
   };
 
   /* --------------------------- encerramento ------------------------- */
@@ -1302,8 +1526,9 @@
     if (this._audioCtx) { try { this._audioCtx.close(); } catch (e) {} }
     if (this._detector && this._detector.close) { try { this._detector.close(); } catch (e) {} }
     this._detector = null;
-    ["_camada", "_sinaisCaixa", "_mira"].forEach(function (k) { if (eu[k]) { eu[k].remove(); eu[k] = null; } });
-    document.documentElement.classList.remove("pct-em-prova");
+    ["_camada", "_sinaisCaixa", "_mira", "_advCaixa"].forEach(function (k) { if (eu[k]) { eu[k].remove(); eu[k] = null; } });
+    this._feed = null; this._advAtivas = {};
+    document.documentElement.classList.remove("pct-em-prova", "pct-com-sinais");
     if (this.area) { this.area.classList.remove("pct-area"); this.area.style.visibility = ""; }
     if (navigator.keyboard && navigator.keyboard.unlock) { try { navigator.keyboard.unlock(); } catch (e) {} }
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
@@ -1322,7 +1547,7 @@
       this._tempoSuspensoMs += ms; this._suspensao = null;
     }
     this._evento("sistema", "sessao_encerrada", "Sessão encerrada",
-      { entregue: "Prova entregue pelo participante.", encerrada_por_limite: "Encerramento por limite de suspensões.", interrompida: "Sessão interrompida." }[situacao] || situacao);
+      { entregue: "Prova entregue pelo participante.", encerrada_durante_bloqueio: "Encerramento pelo participante durante o bloqueio.", interrompida: "Sessão interrompida." }[situacao] || situacao);
     var fimT = this._agora();
     var faseAnterior = this._fase;
     this._fase = "encerrando";
@@ -1360,8 +1585,8 @@
         resumo: {
           duracaoProvaMs: eu._inicioProvaT === undefined ? 0 : fimT - eu._inicioProvaT,
           suspensoes: eu._ocorrencias, tempoSuspensoMs: eu._tempoSuspensoMs,
-          ocorrenciasObjetivas: conta("objetiva"), sinaisParaRevisao: conta("revisao"),
-          acoesBloqueadas: conta("bloqueio"), porTipo: porTipo
+          advertencias: eu._nAdvertencias, bloqueios: eu._nBloqueios, liberacoes: eu._nLiberacoes,
+          sinaisParaRevisao: conta("revisao"), acoesBloqueadas: conta("bloqueio"), porTipo: porTipo
         },
         eventos: eu._eventos.slice().sort(function (a, b) { return a.t - b.t || a.n - b.n; }), capturas: eu._capturas,
         telemetria: { colunas: ["t", "rostos", "desvioYaw", "desvioPitch", "olharX", "olharY", "vozDb", "vozAtiva", "foco", "suspensa"], linhas: eu._telemetria },
@@ -1377,6 +1602,7 @@
     versao: VERSAO,
     regrasPadrao: REGRAS_PADRAO,
     criar: function (cfg) { return new Sessao(cfg); },
+    resumoSHA256: resumoSHA256,
     _interno: { ajustar: ajustar, prever: prever, desvioCalibragem: desvioCalibragem, Condicao: Condicao, caracteristicas: caracteristicas }
   };
 })(typeof window !== "undefined" ? window : globalThis);

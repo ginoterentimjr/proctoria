@@ -1,17 +1,18 @@
-/*! Proctoria 0.1.0 | painel de auditoria da sessão */
+/*! Proctoria 0.2.0 | painel de auditoria da sessão */
 (function (global) {
   "use strict";
 
-  var SELOS = { objetiva: "Suspensão", revisao: "Para revisão", bloqueio: "Ação bloqueada", atividade: "Atividade", sistema: "Sistema" };
-  var SITUACOES = { entregue: "Prova entregue", encerrada_por_limite: "Encerrada por limite de suspensões", interrompida: "Interrompida" };
+  var SELOS = { suspensao: "Suspensão", revisao: "Advertência", bloqueio: "Ação bloqueada", atividade: "Atividade", sistema: "Sistema" };
+  var SITUACOES = { entregue: "Prova entregue", encerrada_durante_bloqueio: "Encerrada pelo participante durante o bloqueio",
+    encerrada_por_limite: "Encerrada por limite de suspensões", interrompida: "Interrompida" };
   var FILTROS = [
-    ["principais", "Ocorrências", ["objetiva", "revisao", "bloqueio"]],
-    ["objetiva", "Suspensões", ["objetiva"]],
-    ["revisao", "Para revisão", ["revisao"]],
+    ["principais", "Ocorrências", ["suspensao", "revisao", "bloqueio"]],
+    ["suspensao", "Suspensões", ["suspensao"]],
+    ["revisao", "Advertências", ["revisao"]],
     ["bloqueio", "Ações bloqueadas", ["bloqueio"]],
     ["atividade", "Atividade", ["atividade"]],
     ["sistema", "Sistema", ["sistema"]],
-    ["todos", "Registro completo", ["objetiva", "revisao", "bloqueio", "atividade", "sistema"]]
+    ["todos", "Registro completo", ["suspensao", "revisao", "bloqueio", "atividade", "sistema"]]
   ];
 
   var CSS = [
@@ -35,7 +36,7 @@
     ".ppn-trilho{position:relative;height:30px;background:var(--ppn-papel);border:1px solid var(--ppn-linha);border-radius:4px}",
     ".ppn-marca{position:absolute;top:3px;bottom:3px;min-width:6px;border:0;border-radius:2px;padding:0;cursor:pointer}",
     ".ppn-marca:hover,.ppn-marca:focus-visible{outline:2px solid var(--ppn-tinta);outline-offset:1px}",
-    ".ppn-c-objetiva{background:var(--ppn-critico)}.ppn-c-revisao{background:var(--ppn-atencao)}.ppn-c-bloqueio{background:var(--ppn-neutro)}",
+    ".ppn-c-suspensao{background:var(--ppn-critico)}.ppn-c-revisao{background:var(--ppn-atencao)}.ppn-c-bloqueio{background:var(--ppn-neutro)}",
     ".ppn-eixo{position:relative;height:24px;font:500 14px/1 Poppins,'Segoe UI',system-ui,sans-serif;color:var(--ppn-tinta2);font-variant-numeric:tabular-nums}",
     ".ppn-eixo i{position:absolute;top:6px;font-style:normal;transform:translateX(-50%)}",
     ".ppn-eixo i:first-child{transform:none}.ppn-eixo i:last-child{transform:translateX(-100%)}",
@@ -67,6 +68,9 @@
     ".ppn-evid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:12px}",
     ".ppn-mini{background:none;border:1px solid var(--ppn-linha);border-radius:4px;padding:0;cursor:zoom-in;overflow:hidden;text-align:left}",
     ".ppn-mini img{display:block;height:96px;width:auto;max-width:100%}",
+    ".ppn-mini.ppn-grande img{height:auto;width:100%;max-height:420px;object-fit:contain;background:#1B1512}",
+    ".ppn-ambiente{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:20px;align-items:start}",
+    "@media (max-width:760px){.ppn-ambiente{grid-template-columns:minmax(0,1fr)}}",
     ".ppn-mini span{display:block;font:500 13px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;padding:5px 7px;color:var(--ppn-tinta2)}",
     ".ppn-evid audio{height:40px;max-width:100%}",
     ".ppn-decisao{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}",
@@ -129,6 +133,7 @@
     }
     registro.revisao = registro.revisao || { decisoes: {}, parecer: "" };
     registro.revisao.decisoes = registro.revisao.decisoes || {};
+    (registro.eventos || []).forEach(function (e) { if (e.classe === "objetiva") e.classe = "suspensao"; });   // registros da versão 0.1
     var inicio = registro.inicioProvaT || 0, fim = registro.fimT || inicio + 1, total = Math.max(1, fim - inicio);
     var r = registro.resumo || {}, amb = registro.ambiente || {}, cal = amb.calibragem || {};
     var urls = {}, blobs = {};
@@ -153,6 +158,7 @@
         dado("Calibragem do olhar", textoCal),
         dado("Tela compartilhada", amb.superficieCompartilhada === "monitor" ? "Tela inteira" : (amb.superficieCompartilhada || "Não informada")),
         dado("Atalhos de sistema retidos", amb.tecladoRetido ? "Sim, pelo navegador em tela cheia" : "Não disponível neste navegador"),
+        dado("Bloqueios e liberações", "Bloqueios: " + (r.bloqueios || 0) + ". Liberações do administrador: " + (r.liberacoes || 0) + "."),
         dado("Telemetria", ((registro.telemetria || {}).linhas || []).length + " leituras incluídas no arquivo")
       ])
     ]));
@@ -162,14 +168,14 @@
     raiz.appendChild(el("div", { class: "ppn-numeros" }, [
       numero(r.suspensoes || 0, "suspensões da prova"),
       numero(relogio(r.tempoSuspensoMs || 0), "tempo em suspensão"),
-      numero(r.sinaisParaRevisao || 0, "sinais para revisão"),
+      numero(r.advertencias === undefined ? (r.sinaisParaRevisao || 0) : r.advertencias, "advertências ao participante"),
       numero(r.acoesBloqueadas || 0, "ações bloqueadas")
     ]));
 
     /* linha do tempo */
     var linhaTempo = el("div", null, [el("h3", { text: "Linha do tempo da prova" })]);
     var faixas = el("div", { class: "ppn-faixas" });
-    [["objetiva", "Suspensões"], ["revisao", "Sinais para revisão"], ["bloqueio", "Ações bloqueadas"]].forEach(function (f) {
+    [["suspensao", "Suspensões"], ["revisao", "Advertências"], ["bloqueio", "Ações bloqueadas"]].forEach(function (f) {
       var trilho = el("div", { class: "ppn-trilho" });
       (registro.eventos || []).forEach(function (ev) {
         if (ev.classe !== f[0] || ev.t < inicio) return;
@@ -284,6 +290,15 @@
       return b;
     }
 
+    var amb = (registro.eventos || []).filter(function (e) { return e.tipo === "ambiente" && e.evidencias && e.evidencias.tela; })[0];
+    if (amb) {
+      var grande = miniatura(amb.evidencias.tela, "Tela no instante da declaração", "antes da prova");
+      grande.className = "ppn-mini ppn-grande";
+      var blocoAmb = el("div", null, [el("h3", { text: "Área de trabalho antes da prova" }),
+        el("div", { class: "ppn-ambiente" }, [grande, el("p", { class: "ppn-nota", text: (amb.detalhe || "") + " A imagem mostra as janelas e os aplicativos visíveis naquele instante." })])]);
+      raiz.insertBefore(blocoAmb, linhaTempo);
+    }
+
     function desenharLista() {
       lista.textContent = ""; itens = {};
       var evs = (registro.eventos || []).filter(function (e) { return filtroAtual[2].indexOf(e.classe) >= 0; });
@@ -295,17 +310,18 @@
         if (naProva) { bt.title = "Abrir as gravações neste instante"; bt.addEventListener("click", function () { irPara(ev.t); videos.tela.scrollIntoView({ block: "center", behavior: "smooth" }); }); }
         else bt.disabled = true;
         var topo = el("div", { class: "ppn-topo" }, [
-          el("span", { class: "ppn-selo ppn-c-" + ev.classe, text: SELOS[ev.classe] || ev.classe }),
+          el("span", { class: "ppn-selo ppn-c-" + ev.classe, text: ev.classe === "revisao" && !(ev.dados && ev.dados.advertencia) ? "Para revisão" : (SELOS[ev.classe] || ev.classe) }),
           el("strong", { text: ev.titulo }),
           ev.duracaoMs !== undefined ? el("span", { class: "ppn-dur", text: "Duração: " + duracao(ev.duracaoMs) }) : null
         ]);
         var corpo = el("div", null, [topo]);
         var det = ev.detalhe || "";
         if (ev.dados) {
-          var pares = Object.keys(ev.dados).filter(function (k) { return k !== "vezes" && k !== "suspensao" && typeof ev.dados[k] !== "object"; })
+          var pares = Object.keys(ev.dados).filter(function (k) { return k !== "vezes" && k !== "suspensao" && k !== "advertencia" && typeof ev.dados[k] !== "object"; })
             .map(function (k) { return k + ": " + ev.dados[k]; });
           if (ev.dados.vezes > 1) pares.push("repetido " + ev.dados.vezes + " vezes em sequência");
           if (ev.dados.suspensao) pares.push("suspensão de número " + ev.dados.suspensao);
+          if (ev.dados.advertencia) pares.push("advertência de número " + ev.dados.advertencia);
           if (pares.length) det = (det ? det + " " : "") + pares.join(" · ");
         }
         if (det) corpo.appendChild(el("p", { class: "ppn-det", text: det }));
@@ -318,7 +334,7 @@
           if (e.audio) caixa.appendChild(el("audio", { controls: "", src: e.audio, preload: "none" }));
           corpo.appendChild(caixa);
         }
-        if (ev.classe === "objetiva" || ev.classe === "revisao") {
+        if (ev.classe === "suspensao" || ev.classe === "revisao") {
           var dec = el("div", { class: "ppn-decisao" });
           [["relevante", "Relevante"], ["desconsiderado", "Desconsiderar"]].forEach(function (o) {
             var b = el("button", { class: "ppn-bt", type: "button", text: o[1], "aria-pressed": registro.revisao.decisoes[ev.n] === o[0] ? "true" : "false" });
