@@ -1,9 +1,11 @@
-/*! Proctoria 0.3.0 | painel de auditoria da sessão */
+/*! Proctoria 0.4.0 | painel de auditoria da sessão */
 (function (global) {
   "use strict";
 
   var SELOS = { suspensao: "Suspensão", revisao: "Advertência", bloqueio: "Ação bloqueada", atividade: "Atividade", sistema: "Sistema" };
   var SITUACOES = { entregue: "Prova entregue", encerrada_durante_bloqueio: "Encerrada pelo participante durante o bloqueio",
+    invalidada: "Invalidada por ausência da câmera", encerrada_pelo_administrador: "Encerrada por determinação do administrador",
+    tempo_esgotado: "Encerrada por tempo esgotado", em_andamento: "Em andamento",
     encerrada_por_limite: "Encerrada por limite de suspensões", interrompida: "Interrompida" };
   var FILTROS = [
     ["principais", "Ocorrências", ["suspensao", "revisao", "bloqueio"]],
@@ -69,8 +71,7 @@
     ".ppn-mini{background:none;border:1px solid var(--ppn-linha);border-radius:4px;padding:0;cursor:zoom-in;overflow:hidden;text-align:left}",
     ".ppn-mini img{display:block;height:96px;width:auto;max-width:100%}",
     ".ppn-mini.ppn-grande img{height:auto;width:100%;max-height:420px;object-fit:contain;background:#1B1512}",
-    ".ppn-ambiente{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:20px;align-items:start}",
-    "@media (max-width:760px){.ppn-ambiente{grid-template-columns:minmax(0,1fr)}}",
+    ".ppn-antes{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;align-items:start}",
     ".ppn-mini span{display:block;font:500 13px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;padding:5px 7px;color:var(--ppn-tinta2)}",
     ".ppn-evid audio{height:40px;max-width:100%}",
     ".ppn-decisao{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}",
@@ -216,6 +217,23 @@
     blocoVideos.appendChild(rotuloEntrada);
     raiz.appendChild(blocoVideos);
 
+    var botaoRemoto = el("button", { class: "ppn-bt ppn-forte", type: "button", text: "Carregar as gravações da sessão" });
+    botaoRemoto.hidden = true;
+    botaoRemoto.addEventListener("click", function () {
+      botaoRemoto.disabled = true;
+      var fila = [];
+      ["tela", "camera"].forEach(function (tipo) { ((registro.gravacoes || {})[tipo] || []).forEach(function (g) { if (!urls[g.arquivo]) fila.push([tipo, g]); }); });
+      var total = fila.length, passo = function () {
+        if (!fila.length) { botaoRemoto.disabled = false; botaoRemoto.textContent = "Carregar as gravações da sessão"; carregarVideos(); return; }
+        var item = fila.shift();
+        botaoRemoto.textContent = "Carregando a gravação " + (total - fila.length) + " de " + total;
+        opcoes.buscarGravacao(item[0], item[1]).then(function (blob) { urls[item[1].arquivo] = URL.createObjectURL(blob); blobs[item[1].arquivo] = blob; })
+          .catch(function () { notaVideos.textContent = "Não foi possível carregar " + item[1].arquivo + "."; }).then(passo);
+      };
+      passo();
+    });
+    blocoVideos.appendChild(botaoRemoto);
+
     function segmentoDe(tipo, t) {
       var segs = ((registro.gravacoes || {})[tipo] || []).filter(function (g) { return urls[g.arquivo]; });
       if (!segs.length) return null;
@@ -250,9 +268,10 @@
         todos.forEach(function (seg) { if (!urls[seg.arquivo]) faltam.push(seg.arquivo); });
         if (!todos.length) cap.appendChild(el("span", { class: "ppn-dur", text: "Gravação não realizada nesta sessão." }));
       });
-      notaVideos.textContent = faltam.length ? "Arquivos de gravação ainda não carregados: " + faltam.join(", ") + "."
+      notaVideos.textContent = faltam.length ? (opcoes.buscarGravacao ? "As gravações ficam no servidor e são carregadas sob demanda." : "Arquivos de gravação ainda não carregados: " + faltam.join(", ") + ".")
         : "O instante de cada ocorrência abre as duas gravações dois segundos antes do registro.";
-      rotuloEntrada.hidden = !faltam.length;
+      rotuloEntrada.hidden = !faltam.length || !!opcoes.buscarGravacao;
+      botaoRemoto.hidden = !faltam.length || !opcoes.buscarGravacao;
     }
     function irPara(t) {
       ["tela", "camera"].forEach(function (tipo) {
@@ -290,13 +309,15 @@
       return b;
     }
 
-    var amb = (registro.eventos || []).filter(function (e) { return e.tipo === "ambiente" && e.evidencias && e.evidencias.tela; })[0];
-    if (amb) {
-      var grande = miniatura(amb.evidencias.tela, "Tela no instante da declaração", "antes da prova");
-      grande.className = "ppn-mini ppn-grande";
-      var blocoAmb = el("div", null, [el("h3", { text: "Área de trabalho antes da prova" }),
-        el("div", { class: "ppn-ambiente" }, [grande, el("p", { class: "ppn-nota", text: (amb.detalhe || "") + " A imagem mostra as janelas e os aplicativos visíveis naquele instante." })])]);
-      raiz.insertBefore(blocoAmb, linhaTempo);
+    var antes = (registro.eventos || []).filter(function (e) { return /^(identidade_|ambiente)/.test(e.tipo) && e.evidencias && (e.evidencias.camera || e.evidencias.tela); });
+    if (antes.length) {
+      var galeria = el("div", { class: "ppn-antes" });
+      antes.forEach(function (ev) {
+        var m = miniatura(ev.evidencias.camera || ev.evidencias.tela, ev.titulo, "antes da prova");
+        m.className = "ppn-mini ppn-grande"; galeria.appendChild(m);
+      });
+      raiz.insertBefore(el("div", null, [el("h3", { text: "Identidade e ambiente antes da prova" }), galeria,
+        el("p", { class: "ppn-nota", text: "A imagem da área de trabalho mostra as janelas e os aplicativos visíveis no instante da declaração do participante." })]), linhaTempo);
     }
 
     function desenharLista() {
@@ -382,6 +403,28 @@
     var campo = el("textarea", { id: "ppn-parecer-" + Date.now(), placeholder: "Conclusão da auditoria, com os fundamentos da decisão." });
     campo.value = registro.revisao.parecer || "";
     campo.addEventListener("input", function () { registro.revisao.parecer = campo.value; });
+    var acoesRev = el("div", { class: "ppn-acoes" });
+    if (opcoes.aoSalvarRevisao) {
+      var gravar = el("button", { class: "ppn-bt ppn-forte", type: "button", text: "Salvar a revisão" }), statusRev = el("span", { class: "ppn-dur", role: "status" });
+      gravar.addEventListener("click", function () {
+        gravar.disabled = true; statusRev.textContent = "";
+        Promise.resolve(opcoes.aoSalvarRevisao(registro.revisao)).then(function () { statusRev.textContent = "Revisão salva."; }, function () { statusRev.textContent = "Não foi possível salvar a revisão."; })
+          .then(function () { gravar.disabled = false; });
+      });
+      acoesRev.appendChild(gravar); acoesRev.appendChild(statusRev);
+    }
+    if (global.ProctoriaRelatorio) {
+      var rel = el("button", { class: "ppn-bt", type: "button", text: "Abrir o relatório formal" });
+      rel.addEventListener("click", function () {
+        var janela = opcoes.aoGerarRelatorio ? global.open("", "_blank") : null;   // aberta no clique; o conteúdo chega depois do preparo
+        if (janela) { try { janela.document.title = "Preparando o relatório"; janela.document.body.textContent = "Preparando o relatório da sessão."; } catch (x) {} }
+        Promise.resolve(opcoes.aoGerarRelatorio ? opcoes.aoGerarRelatorio(registro) : null).then(function (extra) {
+          var x = extra || opcoes.relatorio || {};
+          global.ProctoriaRelatorio.abrir(x.registro || registro, x, janela);
+        }, function () { if (janela) janela.close(); });
+      });
+      acoesRev.appendChild(rel);
+    }
     var salvar = el("button", { class: "ppn-bt ppn-forte", type: "button", text: "Baixar o registro com a revisão" });
     salvar.addEventListener("click", function () {
       baixar(nomeBase + "_registro.json", new Blob([JSON.stringify(registro)], { type: "application/json" }));
@@ -389,6 +432,7 @@
     raiz.appendChild(el("div", null, [
       el("h3", null, [el("label", { for: campo.id, text: "Parecer da revisão" })]),
       campo,
+      acoesRev,
       el("div", { class: "ppn-acoes" }, [salvar]),
       el("p", { class: "ppn-nota", text: "As marcações de cada ocorrência e o parecer seguem no arquivo de registro." })
     ]));

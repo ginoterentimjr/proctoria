@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Prova | Proctoria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
+<link rel="stylesheet" href="app.css">
+<style>
+.barra-prova{display:flex;flex-wrap:wrap;gap:8px 28px;align-items:baseline;justify-content:space-between;border-bottom:2px solid var(--tinta);padding-bottom:14px;margin-bottom:20px}
+.barra-prova b{font:600 22px/1.2 var(--titulo)}
+.barra-prova span{font:500 18px/1.2 var(--titulo);font-variant-numeric:tabular-nums}
+.barra-prova .pouco{color:var(--critico);font-weight:600}
+.faixa{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 26px}
+.faixa button{font:600 15px/1 var(--titulo);min-width:42px;padding:10px 8px;border-radius:5px;border:1px solid var(--tinta2);background:transparent;color:var(--tinta);cursor:pointer;font-variant-numeric:tabular-nums}
+.faixa button.feita{background:var(--ouro);border-color:var(--ouro)}
+.faixa button[aria-current=true]{background:var(--tinta);color:var(--fundo);border-color:var(--tinta)}
+.caso{border-left:4px solid var(--ouro);padding:4px 0 4px 18px;margin:0 0 26px}
+.caso p{margin:0;max-width:74ch;white-space:pre-wrap}
+.enunciado{font:600 25px/1.32 var(--titulo);margin:0 0 22px;max-width:32em;white-space:pre-wrap}
+.alternativas{display:grid;gap:12px;margin:0 0 28px;padding:0;border:0;min-width:0}
+.alternativas label{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px;align-items:center;background:var(--papel);border:1px solid var(--linha);border-radius:6px;padding:15px 18px;font-size:20px;cursor:pointer}
+.alternativas label:has(input:checked){border-color:var(--laranja);box-shadow:inset 0 0 0 1px var(--laranja)}
+.alternativas input{width:22px;height:22px;margin:0;accent-color:var(--laranja)}
+.confirmacao{margin-top:22px;padding:20px;border:1px solid var(--laranja);border-radius:6px;background:var(--papel)}
+.material{margin-top:22px;border:1px solid var(--linha);border-radius:6px;background:var(--papel);padding:18px}
+.material pre{white-space:pre-wrap;font:400 18px/1.55 var(--texto);margin:0}
+.material iframe{width:100%;height:70vh;border:1px solid var(--linha)}
+.conexao{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:2147483350;background:var(--critico);color:#fff;font:600 15px/1.3 var(--titulo);padding:10px 16px;border-radius:6px}
+/* canal de mensagens com o administrador: fica acima das camadas da engine */
+.canal{position:fixed;right:14px;bottom:14px;z-index:2147483400;font:400 17px/1.45 var(--texto);display:grid;justify-items:end}
+.canal-aviso{width:min(360px,calc(100vw - 28px));background:#1B1512;color:#FAF5EC;border-left:6px solid #E5662C;border-radius:6px;padding:10px 12px;margin-bottom:8px;cursor:pointer;text-align:left;font:400 17px/1.4 var(--texto);border-top:0;border-right:0;border-bottom:0;overflow-wrap:anywhere}
+.canal-aviso small{display:block;font:600 11px/1.2 var(--titulo);letter-spacing:.08em;text-transform:uppercase;color:#C99A57;margin-bottom:2px}
+.canal>button{font:600 15px/1.2 var(--titulo);background:#1B1512;color:#FAF5EC;border:1px solid rgba(201,154,87,.6);border-radius:6px;padding:11px 15px;cursor:pointer}
+.canal>button i{display:inline-block;min-width:22px;margin-left:8px;padding:3px 6px;border-radius:11px;background:#E5662C;color:#1B1512;font-style:normal;font-size:13px;text-align:center}
+.canal-caixa{width:min(360px,calc(100vw - 28px));background:#1B1512;color:#FAF5EC;border:1px solid rgba(201,154,87,.6);border-radius:6px;margin-bottom:8px;display:grid}
+.canal-caixa h3{font:600 13px/1.2 var(--titulo);letter-spacing:.12em;text-transform:uppercase;color:#C99A57;margin:0;padding:12px 14px 8px}
+.canal-lista{list-style:none;margin:0;padding:0 14px;max-height:240px;overflow-y:auto;display:grid;gap:8px}
+.canal-lista li{padding:8px 10px;border-radius:5px;background:rgba(250,245,236,.1);overflow-wrap:anywhere}
+.canal-lista li.admin{background:rgba(229,102,44,.28)}
+.canal-lista small{display:block;font:600 11px/1.2 var(--titulo);letter-spacing:.08em;text-transform:uppercase;color:#C99A57;margin-bottom:2px}
+.canal-lista:empty::after{content:"Nenhuma mensagem. O administrador acompanha esta sessão.";color:#b7a892;font-size:15px}
+.canal form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px 14px}
+.canal input{font:400 16px/1.3 var(--texto);padding:9px 10px;border:0;border-radius:4px;background:#FAF5EC;color:#1B1512;-webkit-user-select:text;user-select:text}
+.canal form button{font:600 15px/1 var(--titulo);background:#E5662C;color:#1B1512;border:0;border-radius:4px;padding:0 14px;cursor:pointer}
+@media (min-width:1180px){html.pct-com-sinais .pagina{margin-right:310px;margin-left:auto}}
+</style>
+</head>
+<body>
+<div class="pagina">
+  <header class="marca"><b>Proctoria</b><span id="marca-prova">Prova monitorada</span></header>
+
+  <main id="v-carregando"><p class="entrada" role="status">Carregando os dados da prova.</p></main>
+
+  <main id="v-erro" hidden><h1>Prova indisponível</h1><p class="entrada" id="texto-erro"></p></main>
+
+  <main id="v-entrada" hidden>
+    <p class="sobre" id="e-aluno"></p>
+    <h1 id="e-titulo"></h1>
+    <div class="duas">
+      <div>
+        <dl class="dados" id="e-dados"></dl>
+        <h2 style="margin-top:28px">Regras da sessão</h2>
+        <ul id="e-regras" style="padding-left:22px;display:grid;gap:8px;margin:0 0 18px"></ul>
+        <div id="e-instrucoes-bloco" hidden><h2>Instruções</h2><p id="e-instrucoes" style="white-space:pre-wrap"></p></div>
+      </div>
+      <div>
+        <div class="ficha" id="lancador">
+          <h2>Janela exclusiva da prova</h2>
+          <p class="nota" style="margin:0">A prova abre em uma janela própria, maximizada e sem outras abas. Minimizar ou redimensionar essa janela suspende a prova. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
+          <div class="acoes"><button class="botao" type="button" id="abrir-janela">Abrir a prova em janela exclusiva</button></div>
+          <p class="alerta" id="aviso-janela" role="status" hidden></p>
+        </div>
+        <form class="ficha" id="ficha" hidden>
+          <p class="nota" id="aviso-retomada" style="margin:0" hidden>Há uma sessão em andamento para este convite. Ao retomar, a verificação é refeita, a interrupção fica registrada como suspensão e o tempo de prova segue em contagem.</p>
+          <label class="marcar" for="consentimento"><input type="checkbox" id="consentimento">
+            <span>Autorizo a captação da imagem da câmera, do som do microfone e da tela inteira durante a prova, bem como o registro das fotos de identificação, para fiscalização e auditoria. Os registros e as gravações são enviados ao servidor da instituição e ficam disponíveis apenas ao administrador da prova.</span>
+          </label>
+          <div class="acoes"><button class="botao" type="submit" id="iniciar" disabled>Iniciar a verificação</button></div>
+          <p class="alerta" id="aviso-inicio" role="status" hidden></p>
+          <p class="nota" style="margin:0">Requisitos: Google Chrome ou Microsoft Edge em computador, com câmera e microfone. No macOS, o primeiro compartilhamento de tela pede autorização do navegador em Ajustes do Sistema, Privacidade e Segurança, Gravação de Tela.</p>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <main id="v-prova" hidden>
+    <div id="area-prova">
+      <div class="barra-prova"><b id="p-titulo"></b><span id="contador"></span><span>Tempo restante: <span id="relogio">00:00</span></span></div>
+      <div class="faixa" id="faixa" role="group" aria-label="Questões da prova"></div>
+      <div class="caso" id="caso" hidden><p class="sobre">Caso</p><p id="texto-caso"></p></div>
+      <p class="enunciado" id="enunciado" aria-live="polite"></p>
+      <fieldset class="alternativas" id="alternativas"></fieldset>
+      <div class="acoes">
+        <button class="botao sec" type="button" id="anterior">Anterior</button>
+        <button class="botao sec" type="button" id="proxima">Próxima</button>
+        <button class="botao sec" type="button" id="ver-material" hidden>Material de consulta</button>
+        <button class="botao" type="button" id="entregar">Entregar a prova</button>
+      </div>
+      <div class="confirmacao" id="confirmacao" hidden>
+        <p id="texto-confirmacao"></p>
+        <div class="acoes"><button class="botao" type="button" id="confirmar">Confirmar a entrega</button><button class="botao sec" type="button" id="voltar">Voltar à prova</button></div>
+      </div>
+      <div class="material" id="material" hidden></div>
+      <div id="ferramentas" style="margin-top:26px"></div>
+    </div>
+  </main>
+
+  <main id="v-fim" hidden>
+    <h1 id="titulo-fim">Prova entregue</h1>
+    <p class="entrada" id="texto-fim"></p>
+    <p class="nota" id="envio-fim" role="status"></p>
+  </main>
+</div>
+
+<div class="conexao" id="conexao" role="status" hidden>Sem conexão com o servidor. Os registros são enviados quando a conexão voltar.</div>
+<div class="canal" id="canal" hidden>
+  <button type="button" class="canal-aviso" id="canal-aviso" hidden></button>
+  <div class="canal-caixa" id="canal-caixa" hidden>
+    <h3>Mensagens com o administrador</h3>
+    <ol class="canal-lista" id="canal-lista" aria-live="polite"></ol>
+    <form id="canal-form"><input type="text" id="canal-texto" maxlength="500" autocomplete="off" aria-label="Mensagem ao administrador"><button type="submit">Enviar</button></form>
+  </div>
+  <button type="button" id="canal-botao" aria-expanded="false">Falar com o administrador<i id="canal-novas" hidden>0</i></button>
+</div>
+
+<script src="proctoria.js"></script>
+<script src="ferramentas.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var LETRAS = "ABCDEFGHIJ";
+  var codigo = (location.hash || "").replace(/^#/, "").replace(/[^a-z0-9]/gi, "");
+  var EXCLUSIVA = window.name === "proctoria-prova";
+  var convite = null, credencial = null, sessao = null, ferramentas = null;
+  var total = 0, atual = 1, marcadas = [], fimPrevisto = 0, desvioRelogio = 0, encerrando = false;
+  var enviados = {}, evidEnviadas = {}, telemetriaAte = 0, conversaDesde = 0, confirmados = [], tique = 0, falhas = 0, sincronizando = false;
+  var fila = [], enviandoTrecho = false, gravMeta = { tela: {}, camera: {} }, gravMetaMudou = false, rascunhoPendente = null, sincId = null, relogioId = null;
+
+  function mostrar(vista) { ["carregando", "erro", "entrada", "prova", "fim"].forEach(function (v) { $("v-" + v).hidden = v !== vista; }); window.scrollTo(0, 0); }
+  function erro(texto) { $("texto-erro").textContent = texto; mostrar("erro"); }
+  function api(metodo, caminho, corpo) {
+    return fetch(caminho, { method: metodo, headers: Object.assign({ "content-type": "application/json" }, credencial ? { authorization: "Bearer " + credencial } : {}), body: corpo ? JSON.stringify(corpo) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { if (!r.ok) { var e = new Error(d.erro || "Falha na comunicação com o servidor."); e.status = r.status; throw e; } return d; }); });
+  }
+  function relogio(ms) { var s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), d = function (n) { return (n < 10 ? "0" : "") + n; }; return (h ? h + ":" : "") + d(m) + ":" + d(s % 60); }
+  function item(texto) { var li = document.createElement("li"); li.textContent = texto; return li; }
+
+  /* ----------------------------- entrada --------------------------- */
+  if (!codigo) { erro("O endereço está incompleto. Utilize o endereço recebido para a prova."); return; }
+  api("GET", "/api/convite/" + codigo).then(function (d) {
+    convite = d;
+    $("marca-prova").textContent = d.prova.titulo;
+    $("e-aluno").textContent = d.aluno.nome;
+    $("e-titulo").textContent = d.prova.titulo;
+    document.title = d.prova.titulo + " | Proctoria";
+    if (d.situacao === "encerrada") { erro("Esta prova já foi encerrada para este convite."); return; }
+    var dl = $("e-dados"); dl.textContent = "";
+    [["Participante", d.aluno.nome], ["Duração", d.prova.duracaoMin + " minutos"], ["Questões", String(d.prova.total)],
+      ["Modalidade", d.prova.consulta === "nenhuma" ? "Sem consulta" : "Com consulta ao material exibido na própria janela"]].forEach(function (x) {
+      var div = document.createElement("div"), dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.textContent = x[0]; dd.textContent = x[1]; div.appendChild(dt); div.appendChild(dd); dl.appendChild(div);
+    });
+    var r = d.prova.resumoRegras, ul = $("e-regras"); ul.textContent = "";
+    ul.appendChild(item("A prova ocorre em tela cheia, com câmera, microfone e tela inteira gravados do início ao fim."));
+    ul.appendChild(item("Olhar fora da tela, rosto ausente, outra pessoa na imagem e som de voz geram advertência e, se a condição continuar, suspensão."));
+    ul.appendChild(item("Sair da janela, minimizar, redimensionar ou interromper o compartilhamento suspende a prova de imediato."));
+    if (r.limiteSuspensoes > 0) ul.appendChild(item("Na suspensão de número " + r.limiteSuspensoes + ", a prova fica bloqueada até a liberação do administrador."));
+    if (r.semPausasSeg > 0) ul.appendChild(item("Prova sem pausas: o rosto fora da imagem por " + r.semPausasSeg + " segundos invalida a prova."));
+    ul.appendChild(item("O tempo de prova segue em contagem durante suspensões, bloqueios e interrupções."));
+    ul.appendChild(item("Copiar, colar, imprimir e os atalhos do navegador ficam bloqueados. " + (d.prova.ferramentas.calculadora || d.prova.ferramentas.rascunho ? "Calculadora e rascunho estão disponíveis na própria tela." : "")));
+    if (d.prova.instrucoes) { $("e-instrucoes").textContent = d.prova.instrucoes; $("e-instrucoes-bloco").hidden = false; }
+    if (d.situacao === "em_andamento" || d.situacao === "aberta") { $("aviso-retomada").hidden = d.situacao !== "em_andamento"; $("iniciar").textContent = d.situacao === "em_andamento" ? "Retomar a prova" : "Iniciar a verificação"; }
+    if (EXCLUSIVA) {
+      try { window.moveTo(screen.availLeft || 0, screen.availTop || 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch (e) {}
+      $("lancador").hidden = true; $("ficha").hidden = false;
+    }
+    mostrar("entrada");
+  }, function (e) { erro(e.message); });
+
+  $("abrir-janela").addEventListener("click", function () {
+    var janela = null;
+    try { janela = window.open(location.pathname + location.search + "#" + codigo, "proctoria-prova", "popup=yes,width=" + screen.availWidth + ",height=" + screen.availHeight + ",left=" + (screen.availLeft || 0) + ",top=" + (screen.availTop || 0)); } catch (e) {}
+    if (!janela) { $("lancador").hidden = true; $("ficha").hidden = false; $("aviso-inicio").textContent = "O navegador impediu a abertura da janela exclusiva. A prova prossegue nesta aba."; $("aviso-inicio").hidden = false; return; }
+    $("abrir-janela").disabled = true;
+    $("aviso-janela").textContent = "A prova foi aberta em uma janela exclusiva. Esta aba pode ser fechada."; $("aviso-janela").hidden = false;
+  });
+  $("consentimento").addEventListener("change", function () { $("iniciar").disabled = !this.checked; });
+
+  $("ficha").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (!$("consentimento").checked) return;
+    $("iniciar").disabled = true; $("aviso-inicio").hidden = true;
+    api("POST", "/api/convite/" + codigo + "/abrir").then(function (d) {
+      if (d.encerrada) { erro("Esta prova já foi encerrada para este convite."); return; }
+      credencial = d.credencial;
+      desvioRelogio = d.sessao.agora - Date.now();
+      if (d.sessao.inicio && d.sessao.agora > d.sessao.fimPrevisto) {   // o tempo acabou durante a interrupção
+        return api("POST", "/api/sessao/entregar", { situacao: "tempo_esgotado" }).then(function () { finalizarTela("tempo_esgotado", true); });
+      }
+      if (d.retomada) conversaDesde = 0;
+      sessao = Proctoria.criar({
+        aluno: d.aluno, prova: { id: d.prova.id, titulo: d.prova.titulo }, areaDaProva: $("area-prova"),
+        regras: d.prova.regras, retomada: d.retomada || null, segmentoInicial: d.segmentoInicial || 0,
+        aoTrecho: aoTrecho,
+        aoEncerrar: function (res) { finalizar(res); }
+      });
+      window.sessaoProctoria = sessao;
+      $("canal").hidden = false;
+      sincId = setInterval(sincronizar, 4000);
+      return sessao.preparar().then(function () { return api("POST", "/api/sessao/iniciar"); }).then(function (i) {
+        total = i.total; marcadas = i.marcadas; fimPrevisto = i.fimPrevisto; desvioRelogio = i.agora - Date.now(); atual = Math.min(total, Math.max(1, i.questaoAtual || 1));
+        $("p-titulo").textContent = d.prova.titulo;
+        mostrar("prova");
+        if (d.prova.ferramentas.calculadora || d.prova.ferramentas.rascunho) {
+          ferramentas = ProctoriaFerramentas.montar($("ferramentas"), { calculadora: d.prova.ferramentas.calculadora, rascunho: d.prova.ferramentas.rascunho, textoInicial: i.rascunho || "",
+            aoMudarRascunho: function (t) { rascunhoPendente = t; }, aoUsar: function (nome) { sessao.registrar(nome === "calculadora" ? "Calculadora aberta" : "Rascunho aberto"); } });
+        }
+        prepararMaterial(d.prova.consulta, i.material);
+        sessao.iniciarProva();
+        relogioId = setInterval(atualizarRelogio, 500); atualizarRelogio();
+        return abrirQuestao(atual);
+      });
+    }).catch(function (e) {
+      if (encerrando) return;
+      clearInterval(sincId);
+      if (sessao) { try { sessao.encerrar("interrompida"); } catch (x) {} sessao = null; }
+      mostrar("entrada");
+      $("iniciar").disabled = !$("consentimento").checked;
+      $("aviso-inicio").textContent = e && e.message === "Verificação cancelada." ? "A verificação foi cancelada. A prova não foi iniciada." : (e && e.message) || "Não foi possível iniciar a prova.";
+      $("aviso-inicio").hidden = false;
+    });
+  });
+
+  /* ----------------------------- questões -------------------------- */
+  function desenharFaixa() {
+    var f = $("faixa"); f.textContent = "";
+    for (var n = 1; n <= total; n++) (function (n) {
+      var b = document.createElement("button"); b.type = "button"; b.textContent = String(n);
+      if (marcadas[n - 1]) b.className = "feita";
+      b.setAttribute("aria-current", n === atual ? "true" : "false");
+      b.setAttribute("aria-label", "Questão " + n + (marcadas[n - 1] ? ", respondida" : ", sem resposta"));
+      b.addEventListener("click", function () { abrirQuestao(n); });
+      f.appendChild(b);
+    })(n);
+  }
+  function abrirQuestao(n) {
+    return api("GET", "/api/sessao/questao/" + n).then(function (q) {
+      atual = q.n;
+      $("contador").textContent = "Questão " + q.n + " de " + q.total;
+      $("caso").hidden = !q.caso; $("texto-caso").textContent = q.caso || "";
+      $("enunciado").textContent = q.enunciado;
+      var caixa = $("alternativas"); caixa.textContent = "";
+      var legenda = document.createElement("legend"); legenda.textContent = "Alternativas da questão " + q.n;
+      legenda.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"; caixa.appendChild(legenda);
+      q.alternativas.forEach(function (texto, k) {
+        var id = "alt-" + q.n + "-" + k, rotulo = document.createElement("label"), entrada = document.createElement("input"), span = document.createElement("span");
+        rotulo.htmlFor = id; entrada.type = "radio"; entrada.name = "alternativa"; entrada.id = id; entrada.checked = q.resposta === k;
+        span.textContent = LETRAS[k] + ") " + texto;
+        entrada.addEventListener("change", function () {
+          marcadas[q.n - 1] = true; desenharFaixa();
+          sessao.registrar("Resposta assinalada", { "questão": q.n, alternativa: LETRAS[k] });
+          api("POST", "/api/sessao/resposta", { n: q.n, k: k }).catch(function (e) { avisoConexao(true); respostasPendentes.push({ n: q.n, k: k }); });
+        });
+        rotulo.appendChild(entrada); rotulo.appendChild(span); caixa.appendChild(rotulo);
+      });
+      $("anterior").disabled = q.n === 1; $("proxima").disabled = q.n === q.total; $("confirmacao").hidden = true;
+      desenharFaixa();
+      sessao.registrar("Questão exibida", { "questão": q.n });
+    }).catch(function (e) {
+      if (e.status === 410) entregarProva("tempo_esgotado");
+      else { $("enunciado").textContent = "Não foi possível carregar a questão. " + e.message; }
+    });
+  }
+  var respostasPendentes = [];
+  $("anterior").addEventListener("click", function () { if (atual > 1) abrirQuestao(atual - 1); });
+  $("proxima").addEventListener("click", function () { if (atual < total) abrirQuestao(atual + 1); });
+  $("entregar").addEventListener("click", function () {
+    var n = marcadas.filter(Boolean).length;
+    $("texto-confirmacao").textContent = "Questões respondidas: " + n + " de " + total + ". Depois da entrega, as respostas não podem ser alteradas.";
+    $("confirmacao").hidden = false; $("confirmar").focus();
+  });
+  $("voltar").addEventListener("click", function () { $("confirmacao").hidden = true; });
+  $("confirmar").addEventListener("click", function () { entregarProva("entregue"); });
+
+  function prepararMaterial(tipo, texto) {
+    if (tipo === "nenhuma") return;
+    var caixa = $("material"), botao = $("ver-material"), carregado = false;
+    botao.hidden = false;
+    botao.addEventListener("click", function () {
+      caixa.hidden = !caixa.hidden;
+      if (!caixa.hidden) sessao.registrar("Material de consulta aberto");
+      if (carregado || caixa.hidden) return;
+      carregado = true;
+      if (tipo === "texto") { var pre = document.createElement("pre"); pre.textContent = texto || ""; caixa.appendChild(pre); return; }
+      fetch("/api/sessao/material", { headers: { authorization: "Bearer " + credencial } }).then(function (r) { if (!r.ok) throw new Error(); return r.blob(); }).then(function (b) {
+        var q = document.createElement("iframe"); q.title = "Material de consulta"; q.src = URL.createObjectURL(b) + "#toolbar=0&navpanes=0"; caixa.appendChild(q);
+      }).catch(function () { caixa.textContent = "Não foi possível carregar o material de consulta."; });
+    });
+  }
+
+  function atualizarRelogio() {
+    var resta = fimPrevisto - (Date.now() + desvioRelogio);
+    $("relogio").textContent = relogio(resta);
+    $("relogio").className = resta < 5 * 60000 ? "pouco" : "";
+    if (resta <= 0 && !encerrando) entregarProva("tempo_esgotado");
+  }
+
+  /* ----------------------------- envio ao servidor ----------------- */
+  function aoTrecho(tipo, blob, info) {
+    if (!gravMeta[tipo][info.segmento]) { gravMeta[tipo][info.segmento] = { segmento: info.segmento, inicioT: info.inicioT }; gravMetaMudou = true; }
+    fila.push({ tipo: tipo, segmento: info.segmento, n: info.n, blob: blob, tentativas: 0 });
+    enviarTrechos();
+  }
+  function enviarTrechos() {
+    if (enviandoTrecho || !fila.length) return;
+    enviandoTrecho = true;
+    var t = fila[0];
+    fetch("/api/sessao/gravacao/" + t.tipo + "/" + t.segmento + "/" + t.n, { method: "PUT", headers: { authorization: "Bearer " + credencial }, body: t.blob }).then(function (r) {
+      if (!r.ok && r.status !== 413) throw new Error("envio");
+      fila.shift(); enviandoTrecho = false; enviarTrechos();
+    }).catch(function () { t.tentativas++; enviandoTrecho = false; setTimeout(enviarTrechos, Math.min(15000, 1500 * t.tentativas)); });
+  }
+  function avisoConexao(ligar) { $("conexao").hidden = !ligar; }
+
+  function montarLote() {
+    var lote = [], bytes = 0, evs = sessao.eventos();
+    for (var i = 0; i < evs.length && lote.length < 25 && bytes < 2500000; i++) {
+      var ev = evs[i], campos = ev.evidencias ? Object.keys(ev.evidencias) : [], ja = evidEnviadas[ev.n] || {};
+      var novas = campos.filter(function (c) { return !ja[c]; });
+      var marca = [ev.t, ev.duracaoMs, ev.detalhe ? ev.detalhe.length : 0, ev.dados ? JSON.stringify(ev.dados).length : 0, campos.length].join("|");
+      if (enviados[ev.n] === marca && !novas.length) continue;
+      var copia = { n: ev.n, t: ev.t, hora: ev.hora, fase: ev.fase, classe: ev.classe, tipo: ev.tipo, titulo: ev.titulo, detalhe: ev.detalhe, duracaoMs: ev.duracaoMs, dados: ev.dados };
+      if (novas.length) { copia.evidencias = {}; novas.forEach(function (c) { copia.evidencias[c] = ev.evidencias[c]; bytes += ev.evidencias[c].length; }); }
+      lote.push({ copia: copia, marca: marca, novas: novas });
+    }
+    return lote;
+  }
+  function sincronizar(final) {
+    if (!sessao || !credencial || sincronizando) return Promise.resolve(false);
+    sincronizando = true; tique++;
+    var lote = montarLote(), tel = sessao.telemetria(), linhas = tel.slice(telemetriaAte), ateAgora = tel.length;
+    var corpo = { eventos: lote.map(function (x) { return x.copia; }), telemetria: linhas, estado: sessao.estado(), conversaDesde: conversaDesde, confirmados: confirmados.slice() };
+    if (tique % 3 === 1 && !final) corpo.aoVivo = sessao.quadros();
+    if (rascunhoPendente !== null) corpo.rascunho = rascunhoPendente;
+    if (gravMetaMudou) corpo.gravacoes = metaGravacoes();
+    var enviouRascunho = rascunhoPendente, enviouMeta = gravMetaMudou;
+    return api("POST", "/api/sessao/sinc", corpo).then(function (r) {
+      sincronizando = false; falhas = 0; avisoConexao(false);
+      lote.forEach(function (x) { enviados[x.copia.n] = x.marca; var ja = evidEnviadas[x.copia.n] = evidEnviadas[x.copia.n] || {}; x.novas.forEach(function (c) { ja[c] = true; }); });
+      telemetriaAte = ateAgora;
+      if (enviouRascunho === rascunhoPendente) rascunhoPendente = null;
+      if (enviouMeta) gravMetaMudou = false;
+      confirmados = [];
+      desvioRelogio = r.agora - Date.now(); if (r.fimPrevisto) fimPrevisto = r.fimPrevisto;
+      (r.conversa || []).forEach(receberMensagem); historico = false;
+      (r.comandos || []).forEach(executarComando);
+      while (respostasPendentes.length) { var p = respostasPendentes.shift(); api("POST", "/api/sessao/resposta", p).catch(function () {}); }
+      if (r.encerrada && !encerrando) finalizarTela(r.situacao, true);
+      return lote.length >= 25;
+    }, function () { sincronizando = false; falhas++; if (falhas >= 3) avisoConexao(true); return false; });
+  }
+  function metaGravacoes() {
+    var m = {};
+    ["tela", "camera"].forEach(function (t) { m[t] = Object.keys(gravMeta[t]).map(function (k) { return gravMeta[t][k]; }); });
+    return m;
+  }
+  function executarComando(c) {
+    confirmados.push(c.id);
+    if (!sessao || encerrando) return;
+    if (c.tipo === "liberar") sessao.liberar("administrador, a distância");
+    else if (c.tipo === "suspender") sessao.suspender(c.dados && c.dados.texto ? "Determinação do administrador: " + c.dados.texto : null);
+    else if (c.tipo === "encerrar") entregarProva("encerrada_pelo_administrador");
+    else if (c.tipo === "invalidar") entregarProva("invalidada");
+  }
+
+  /* ----------------------------- canal de mensagens ---------------- */
+  var novas = 0, historico = true, avisoId = null;
+  function receberMensagem(m) {
+    conversaDesde = Math.max(conversaDesde, m.id);
+    var li = document.createElement("li"), quem = document.createElement("small");
+    li.className = m.de === "admin" ? "admin" : ""; quem.textContent = m.de === "admin" ? "Administrador" : "Participante";
+    li.appendChild(quem); li.appendChild(document.createTextNode(m.texto));
+    $("canal-lista").appendChild(li); $("canal-lista").scrollTop = $("canal-lista").scrollHeight;
+    if (m.de === "admin" && $("canal-caixa").hidden && !historico) {   // mensagem nova: aviso breve, sem cobrir a prova
+      novas++; $("canal-novas").textContent = String(novas); $("canal-novas").hidden = false;
+      var a = $("canal-aviso"), rotulo = document.createElement("small"); rotulo.textContent = "Mensagem do administrador";
+      a.textContent = ""; a.appendChild(rotulo); a.appendChild(document.createTextNode(m.texto)); a.hidden = false;
+      clearTimeout(avisoId); avisoId = setTimeout(function () { a.hidden = true; }, 12000);
+    }
+  }
+  $("canal-aviso").addEventListener("click", function () { abrirCanal(true); });
+  function abrirCanal(abrir) {
+    $("canal-caixa").hidden = !abrir; $("canal-botao").setAttribute("aria-expanded", abrir ? "true" : "false");
+    if (abrir) { novas = 0; $("canal-novas").hidden = true; $("canal-aviso").hidden = true; }
+  }
+  $("canal-botao").addEventListener("click", function () { abrirCanal($("canal-caixa").hidden); if (!$("canal-caixa").hidden) $("canal-texto").focus(); });
+  $("canal-form").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var texto = $("canal-texto").value.trim();
+    if (!texto) return;
+    $("canal-texto").value = "";
+    api("POST", "/api/sessao/conversa", { texto: texto }).then(function () { sincronizar(); }, function () { $("canal-texto").value = texto; avisoConexao(true); });
+  });
+
+  /* ----------------------------- encerramento ---------------------- */
+  function entregarProva(situacao) {
+    if (encerrando || !sessao) return;
+    $("confirmar").disabled = true;
+    sessao.encerrar(situacao).then(finalizar);
+  }
+  function finalizar(res) {
+    if (encerrando) return;
+    encerrando = true;
+    clearInterval(relogioId); clearInterval(sincId);
+    var reg = res.registro, situacao = reg.situacao;
+    finalizarTela(situacao, false);
+    var meta = metaGravacoes(), base = sessao.cfg.segmentoInicial || 0;
+    ["tela", "camera"].forEach(function (t) { (reg.gravacoes[t] || []).forEach(function (g, i) { var m = meta[t].filter(function (x) { return x.segmento === base + i + 1; })[0]; if (m) m.fimT = g.fimT; }); });
+    var esperarFila = function (prazo) {
+      return new Promise(function (ok) { var ini = Date.now(), id = setInterval(function () {
+        $("envio-fim").textContent = fila.length ? "Enviando as gravações ao servidor: " + fila.length + " trecho(s) restante(s). Mantenha esta janela aberta." : "Concluindo o envio dos registros.";
+        if (!fila.length || Date.now() - ini > prazo) { clearInterval(id); ok(); }
+      }, 400); enviarTrechos(); });
+    };
+    var drenar = function (voltas) { return sincronizar(true).then(function (mais) { return mais && voltas > 0 ? drenar(voltas - 1) : null; }); };
+    sincronizando = false;
+    drenar(12).then(function () { return esperarFila(120000); }).then(function () {
+      return api("POST", "/api/sessao/entregar", { situacao: situacao, resumo: reg.resumo, ambiente: reg.ambiente, gravacoes: meta, estado: Object.assign(sessao.estado(), { suspensa: false, bloqueada: false }), rascunho: ferramentas ? ferramentas.rascunho() : undefined });
+    }).then(function () {
+      $("envio-fim").textContent = fila.length ? "A prova foi registrada. Parte das gravações não pôde ser enviada e ficou sinalizada ao administrador." : "Todos os registros foram enviados. Esta janela pode ser fechada.";
+    }, function () { $("envio-fim").textContent = "Não foi possível confirmar o envio final. Mantenha esta janela aberta e avise o administrador."; });
+  }
+  function finalizarTela(situacao, jaEnviado) {
+    encerrando = true; clearInterval(relogioId);
+    var titulos = { entregue: "Prova entregue", tempo_esgotado: "Tempo de prova esgotado", invalidada: "Prova invalidada", encerrada_durante_bloqueio: "Prova encerrada durante o bloqueio", encerrada_pelo_administrador: "Prova encerrada pelo administrador" };
+    var textos = { entregue: "As respostas foram registradas. O resultado é divulgado pela coordenação depois da revisão da sessão.",
+      tempo_esgotado: "O tempo terminou e as respostas assinaladas até este momento foram registradas.",
+      invalidada: "A sessão foi encerrada como invalidada. As respostas foram preservadas e a decisão final cabe ao administrador, depois da revisão.",
+      encerrada_durante_bloqueio: "As respostas assinaladas até o bloqueio foram registradas e a sessão segue para revisão.",
+      encerrada_pelo_administrador: "A sessão foi encerrada por determinação do administrador. As respostas assinaladas foram registradas." };
+    $("titulo-fim").textContent = titulos[situacao] || "Sessão encerrada";
+    $("texto-fim").textContent = textos[situacao] || "A sessão foi encerrada.";
+    if (jaEnviado) { $("envio-fim").textContent = "Esta janela pode ser fechada."; clearInterval(sincId); if (sessao) { try { sessao.encerrar(situacao); } catch (e) {} } }
+    mostrar("fim");
+  }
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Proctoria v0.3</title>
+<title>Proctoria v0.4</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
@@ -78,7 +78,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
 </head>
 <body>
 <div class="pagina">
-  <header class="marca"><b>Proctoria</b><span>Versão 0.3 de demonstração</span></header>
+  <header class="marca"><b>Proctoria</b><span>Versão 0.4 de demonstração</span></header>
 
   <!-- INÍCIO -->
   <main id="v-inicio">
@@ -86,10 +86,10 @@ details>div{display:grid;gap:14px;margin-top:14px}
     <p class="entrada">Esta página demonstra a engine em uma prova ilustrativa de quatro questões. O percurso reproduz a experiência do participante e, ao final, abre o painel de auditoria da sessão.</p>
     <div class="duas">
       <ol class="percurso">
-        <li><div><strong>Verificação do ambiente</strong>Câmera, microfone com captação de voz, monitor único, tela inteira compartilhada e registro da área de trabalho.</div></li>
+        <li><div><strong>Verificação do ambiente</strong>Câmera física, microfone com captação de voz, fotos de identidade, prova de vida, monitor único, tela inteira compartilhada e registro da área de trabalho.</div></li>
         <li><div><strong>Calibragem do olhar</strong>Nove pontos na tela, em cerca de vinte segundos.</div></li>
         <li><div><strong>Prova monitorada</strong>Cópia, colagem e atalhos bloqueados. Olhar, rosto e voz geram advertência na tela e, se a condição continuar, suspensão. Saída da janela ou da tela cheia suspende de imediato. Na terceira suspensão, a prova fica bloqueada até a liberação do administrador.</div></li>
-        <li><div><strong>Auditoria</strong>Registro completo da sessão, evidências de cada ocorrência e gravação integral da tela e da câmera.</div></li>
+        <li><div><strong>Auditoria</strong>Registro completo da sessão, evidências de cada ocorrência, gravação integral da tela e da câmera e relatório formal de ocorrências.</div></li>
       </ol>
       <div class="ficha" id="lancador">
         <h2>Janela exclusiva da prova</h2>
@@ -123,6 +123,12 @@ details>div{display:grid;gap:14px;margin-top:14px}
                 <input type="number" id="susp-seg" min="1" max="60" step="0.5" value="4">
               </label>
             </div>
+            <label class="campo" for="sem-pausas">Sem pausas: segundos de rosto fora da imagem que invalidam a prova (0 para desligar)
+              <input type="number" id="sem-pausas" min="0" max="120" step="1" value="0">
+            </label>
+            <label class="marcar" for="r-identidade"><input type="checkbox" id="r-identidade" checked><span>Registrar a identidade: foto do rosto e do documento</span></label>
+            <label class="marcar" for="r-vida"><input type="checkbox" id="r-vida" checked><span>Aplicar a prova de vida antes do início</span></label>
+            <label class="marcar" for="r-varredura"><input type="checkbox" id="r-varredura"><span>Registrar o ambiente com a câmera, em quatro imagens</span></label>
             <label class="marcar" for="r-tela-inteira"><input type="checkbox" id="r-tela-inteira" checked><span>Exigir o compartilhamento da tela inteira, recusando janela ou aba</span></label>
             <label class="marcar" for="r-gravar-tela"><input type="checkbox" id="r-gravar-tela" checked><span>Gravar a tela e o áudio durante toda a sessão</span></label>
             <label class="marcar" for="r-gravar-camera"><input type="checkbox" id="r-gravar-camera" checked><span>Gravar a câmera durante toda a sessão</span></label>
@@ -156,6 +162,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
         <button class="botao sec" type="button" id="proxima">Próxima</button>
         <button class="botao" type="button" id="entregar">Entregar a prova</button>
       </div>
+      <div id="ferramentas" style="margin-top:26px"></div>
       <div class="confirmacao" id="confirmacao" hidden>
         <p id="texto-confirmacao"></p>
         <div class="acoes"><button class="botao" type="button" id="confirmar">Confirmar a entrega</button><button class="botao sec" type="button" id="voltar">Voltar à prova</button></div>
@@ -168,7 +175,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
     <h1 id="titulo-fim">Sessão encerrada</h1>
     <p class="entrada" id="texto-fim"></p>
     <ul class="arquivos" id="arquivos"></ul>
-    <div class="acoes"><button class="botao" type="button" id="abrir-painel">Abrir o painel de auditoria</button><button class="botao sec" type="button" id="nova">Nova sessão</button></div>
+    <div class="acoes"><button class="botao" type="button" id="abrir-painel">Abrir o painel de auditoria</button><button class="botao sec" type="button" id="abrir-relatorio">Abrir o relatório formal</button><button class="botao sec" type="button" id="nova">Nova sessão</button></div>
     <p class="nota" style="margin-top:18px">Nesta demonstração, os arquivos existem apenas neste navegador. Ao fechar ou recarregar a página sem o download, eles se perdem.</p>
   </main>
 
@@ -181,6 +188,8 @@ details>div{display:grid;gap:14px;margin-top:14px}
 
 <script src="proctoria.js"></script>
 <script src="painel.js"></script>
+<script src="ferramentas.js"></script>
+<script src="relatorio.js"></script>
 <script>
 (function () {
   "use strict";
@@ -192,7 +201,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
     { texto: "Em quantos meses a margem de contribuição recupera o custo de aquisição?", alternativas: ["3,75 meses", "6 meses", "7,5 meses", "12 meses"] }
   ];
   var LETRAS = ["A", "B", "C", "D"];
-  var sessao = null, resultado = null, respostas = [], atual = 0, relogioId = null, inicioRelogio = 0;
+  var sessao = null, resultado = null, respostas = [], atual = 0, relogioId = null, inicioRelogio = 0, ferramentas = null;
 
   function mostrar(vista) {
     ["inicio", "prova", "fim", "revisao"].forEach(function (v) { $("v-" + v).hidden = v !== vista; });
@@ -250,6 +259,10 @@ details>div{display:grid;gap:14px;margin-top:14px}
         exigirTelaInteiraCompartilhada: $("r-tela-inteira").checked,
         gravarTela: $("r-gravar-tela").checked,
         gravarCamera: $("r-gravar-camera").checked,
+        identidade: $("r-identidade").checked,
+        provaDeVida: $("r-vida").checked ? "registrar" : "nao",
+        varreduraAmbiente: $("r-varredura").checked,
+        semPausasSeg: Math.max(0, parseInt($("sem-pausas").value, 10) || 0),
         mostrarSinais: $("r-sinais").checked
       },
       aoEncerrar: function (res) { concluir(res); }
@@ -257,6 +270,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
     window.sessaoProctoria = sessao;
     sessao.preparar().then(function () {
       mostrar("prova");
+      ferramentas = ProctoriaFerramentas.montar($("ferramentas"), { aoUsar: function (nome) { sessao.registrar(nome === "calculadora" ? "Calculadora aberta" : "Rascunho aberto"); } });
       desenharQuestao();
       sessao.iniciarProva();
       inicioRelogio = Date.now();
@@ -311,8 +325,9 @@ details>div{display:grid;gap:14px;margin-top:14px}
     $("confirmar").disabled = false;
     resultado = res;
     res.registro.respostas = respostas.map(function (r, i) { return { questão: i + 1, alternativa: r === null ? null : LETRAS[r] }; });
-    var limite = res.registro.situacao === "encerrada_durante_bloqueio";
-    $("titulo-fim").textContent = limite ? "Prova encerrada durante o bloqueio" : "Prova entregue";
+    if (ferramentas) res.registro.rascunho = ferramentas.rascunho();
+    var limite = res.registro.situacao !== "entregue";
+    $("titulo-fim").textContent = { encerrada_durante_bloqueio: "Prova encerrada durante o bloqueio", invalidada: "Prova invalidada por ausência da câmera" }[res.registro.situacao] || "Prova entregue";
     var r = res.registro.resumo;
     $("texto-fim").textContent = (limite ? "As respostas registradas até o encerramento foram preservadas. " : "") +
       "Duração: " + ProctoriaPainel.relogio(r.duracaoProvaMs) + ". Advertências: " + r.advertencias + ". Suspensões: " + r.suspensoes + ". Ações bloqueadas: " + r.acoesBloqueadas + ".";
@@ -337,6 +352,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
     $("voltar-fim").hidden = false;
     mostrar("revisao");
   });
+  $("abrir-relatorio").addEventListener("click", function () { ProctoriaRelatorio.abrir(resultado.registro); });
   $("voltar-fim").addEventListener("click", function () { mostrar("fim"); });
   $("nova").addEventListener("click", function () { location.reload(); });
   $("nova2").addEventListener("click", function () { location.reload(); });

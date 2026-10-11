@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Administração | Proctoria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
+<link rel="stylesheet" href="app.css">
+<style>
+.topo{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;margin-bottom:22px}
+.topo h1{margin:0}
+table.lista{width:100%;border-collapse:collapse;font-size:17px}
+table.lista th{font:600 12px/1.2 var(--titulo);letter-spacing:.1em;text-transform:uppercase;color:var(--tinta2);text-align:left;padding:10px 12px 10px 0;border-bottom:2px solid var(--tinta)}
+table.lista td{padding:13px 12px 13px 0;border-bottom:1px solid var(--linha);vertical-align:top;overflow-wrap:anywhere}
+table.lista td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.rolagem{overflow-x:auto}
+.grupo{border-top:1px solid var(--linha);padding-top:20px;margin-top:24px;display:grid;gap:14px}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px 20px;align-items:start}
+.questao{background:var(--papel);border:1px solid var(--linha);border-radius:6px;padding:18px;display:grid;gap:12px;margin-bottom:16px}
+.questao header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.questao header b{font:600 19px/1.2 var(--titulo)}
+.alt{display:grid;grid-template-columns:24px 28px minmax(0,1fr) auto;gap:10px;align-items:center}
+.alt input[type=radio]{width:22px;height:22px;margin:0;accent-color:var(--laranja)}
+.alt span{font:600 17px/1 var(--titulo)}
+.vivo{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:18px;align-items:start}
+.cartao{background:var(--papel);border:1px solid var(--linha);border-radius:6px;padding:16px;display:grid;gap:12px;min-width:0}
+.cartao.urgente{border-color:var(--critico);box-shadow:inset 0 0 0 1px var(--critico)}
+.cartao header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.cartao header b{font:600 19px/1.25 var(--titulo);overflow-wrap:anywhere}
+.cartao .imagens{display:grid;grid-template-columns:2fr 3fr;gap:8px}
+.cartao .imagens img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#1B1512;border-radius:4px;display:block}
+.cartao .imagens img.tela{aspect-ratio:16/10;object-fit:contain}
+.cartao .medidas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.cartao .medidas dt{font:600 11px/1.2 var(--titulo);letter-spacing:.08em;text-transform:uppercase;color:var(--tinta2)}
+.cartao .medidas dd{margin:2px 0 0;font:600 18px/1.2 var(--titulo);font-variant-numeric:tabular-nums}
+.cartao ul{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:16px}
+.cartao ul li{padding-left:10px;border-left:3px solid var(--neutro)}
+.cartao ul li.suspensao{border-left-color:var(--critico)}.cartao ul li.revisao{border-left-color:var(--atencao)}
+.conversa{position:fixed;right:18px;bottom:18px;z-index:50;width:min(400px,calc(100vw - 36px));background:#1B1512;color:#FAF5EC;border-radius:6px;display:grid;box-shadow:0 12px 40px rgba(27,21,18,.4)}
+.conversa header{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px 6px}
+.conversa header b{font:600 16px/1.2 var(--titulo)}
+.conversa header button{font:600 14px/1 var(--titulo);background:transparent;color:#FAF5EC;border:1px solid rgba(250,245,236,.5);border-radius:4px;padding:7px 10px;cursor:pointer}
+.conversa ol{list-style:none;margin:0;padding:6px 14px;max-height:320px;overflow-y:auto;display:grid;gap:8px;font-size:17px}
+.conversa li{padding:8px 10px;border-radius:5px;background:rgba(250,245,236,.1);overflow-wrap:anywhere}
+.conversa li.admin{background:rgba(229,102,44,.28)}
+.conversa li small{display:block;font:600 11px/1.2 var(--titulo);letter-spacing:.08em;text-transform:uppercase;color:#C99A57;margin-bottom:2px}
+.conversa form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:10px 14px 14px}
+.conversa form input{border:0}
+.conversa form button{font:600 15px/1 var(--titulo);background:#E5662C;color:#1B1512;border:0;border-radius:4px;padding:0 16px;cursor:pointer}
+.aviso-topo{background:var(--papel);border-left:5px solid var(--ouro);padding:12px 16px;margin:0 0 20px;font-size:17px}
+code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#fff;border:1px solid var(--linha);border-radius:4px;padding:6px 8px;display:inline-block;overflow-wrap:anywhere;-webkit-user-select:all;user-select:all}
+</style>
+</head>
+<body>
+<div class="pagina larga">
+  <header class="marca"><b>Proctoria</b><span>Administração</span>
+    <nav id="menu" hidden>
+      <button class="botao sec menor" type="button" data-vista="provas">Provas</button>
+      <button class="botao sec menor" type="button" data-vista="vivo">Acompanhamento</button>
+      <button class="botao sec menor" type="button" data-vista="sessoes">Sessões e auditoria</button>
+      <button class="botao sec menor" type="button" data-vista="config">Configurações</button>
+      <button class="botao sec menor" type="button" id="sair">Sair</button>
+    </nav>
+  </header>
+  <main id="conteudo"></main>
+</div>
+<div class="conversa" id="conversa" hidden>
+  <header><b id="conversa-nome"></b><button type="button" id="conversa-fechar">Fechar</button></header>
+  <ol id="conversa-lista" aria-live="polite"></ol>
+  <form id="conversa-form"><input type="text" id="conversa-texto" maxlength="500" autocomplete="off" aria-label="Mensagem ao participante"><button type="submit">Enviar</button></form>
+</div>
+
+<script src="painel.js"></script>
+<script src="relatorio.js"></script>
+<script>
+(function () {
+  "use strict";
+  var raiz = document.getElementById("conteudo"), temporizadores = [], provas = [], provaAtual = localStorage.getItem("pct-prova") || "";
+  var MOTIVOS = { foco: "saída da janela", tela_cheia: "saída da tela cheia", compartilhamento: "compartilhamento interrompido", camera: "câmera interrompida", microfone: "microfone interrompido",
+    monitor: "monitor adicional", janela_oculta: "janela minimizada ou encoberta", janela_redimensionada: "janela redimensionada", olhar_fora: "olhar fora da tela", cabeca_fora: "cabeça fora da tela",
+    rosto_ausente: "rosto fora da imagem", mais_de_um_rosto: "mais de um rosto", voz: "som de voz", reincidencia: "reincidência de advertências", queda: "sessão interrompida", administrador: "determinação do administrador" };
+  var SITUACOES = { entregue: "Entregue", encerrada_durante_bloqueio: "Encerrada durante o bloqueio", invalidada: "Invalidada por ausência da câmera", encerrada_pelo_administrador: "Encerrada pelo administrador", tempo_esgotado: "Tempo esgotado" };
+
+  function h(tag, attrs, filhos) {
+    var n = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), v);
+      else if (k === "value") n.value = v; else if (k === "checked") n.checked = !!v; else n.setAttribute(k, v === true ? "" : v);
+    });
+    (Array.isArray(filhos) ? filhos : filhos === undefined ? [] : [filhos]).forEach(function (f) { if (f !== null && f !== undefined && f !== false) n.appendChild(typeof f === "string" || typeof f === "number" ? document.createTextNode(String(f)) : f); });
+    return n;
+  }
+  function api(metodo, caminho, corpo) {
+    return fetch(caminho, { method: metodo, headers: { "content-type": "application/json" }, body: corpo ? JSON.stringify(corpo) : undefined, credentials: "same-origin" }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (r.status === 401 && caminho !== "/api/admin/entrar") { telaEntrada(); var e1 = new Error("Sessão do administrador expirada."); e1.status = 401; throw e1; }
+        if (!r.ok) { var e = new Error(d.erro || "Falha na comunicação com o servidor."); e.status = r.status; e.detalhes = d.detalhes; throw e; }
+        return d;
+      });
+    });
+  }
+  function limparTemporizadores() { temporizadores.forEach(clearInterval); temporizadores = []; }
+  function dois(n) { return (n < 10 ? "0" : "") + n; }
+  function relogio(ms) { var s = Math.max(0, Math.round(ms / 1000)), hh = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return (hh ? hh + ":" : "") + dois(m) + ":" + dois(s % 60); }
+  function dataHora(ms) { return ms ? new Date(ms).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : ""; }
+  function campo(rotulo, entrada, nota) { var id = entrada.id || (entrada.id = "c" + Math.random().toString(36).slice(2, 8)); return h("label", { class: "campo", for: id }, [rotulo, entrada, nota ? h("span", { class: "nota", text: nota }) : null]); }
+  function marcar(rotulo, entrada) { var id = entrada.id || (entrada.id = "c" + Math.random().toString(36).slice(2, 8)); return h("label", { class: "marcar", for: id }, [entrada, h("span", { text: rotulo })]); }
+  function status(texto, erro) { return h("p", { class: erro ? "alerta" : "nota", role: "status", text: texto || "", style: "margin:0" }); }
+  function copiar(texto, botao) { navigator.clipboard.writeText(texto).then(function () { var t = botao.textContent; botao.textContent = "Copiado"; setTimeout(function () { botao.textContent = t; }, 1500); }, function () { botao.textContent = "Cópia não permitida pelo navegador"; }); }
+  function menu(vista) {
+    document.getElementById("menu").hidden = false;
+    Array.prototype.forEach.call(document.querySelectorAll("#menu [data-vista]"), function (b) { if (b.getAttribute("data-vista") === vista) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  }
+  function seletorProva(aoMudar, comTodas) {
+    var s = h("select", { "aria-label": "Prova" });
+    if (comTodas) s.appendChild(h("option", { value: "", text: "Todas as provas" }));
+    provas.forEach(function (p) { s.appendChild(h("option", { value: p.id, text: p.titulo })); });
+    if (provaAtual && provas.some(function (p) { return p.id === provaAtual; })) s.value = provaAtual; else if (!comTodas && provas[0]) provaAtual = s.value = provas[0].id; else if (comTodas) provaAtual = s.value = "";
+    s.style.maxWidth = "420px";
+    s.addEventListener("change", function () { provaAtual = s.value; try { localStorage.setItem("pct-prova", provaAtual); } catch (e) {} aoMudar(); });
+    return s;
+  }
+  function carregarProvas() { return api("GET", "/api/admin/provas").then(function (l) { provas = l; return l; }); }
+
+  /* ----------------------------- entrada --------------------------- */
+  function telaEntrada(mensagem) {
+    limparTemporizadores(); document.getElementById("menu").hidden = true; document.getElementById("conversa").hidden = true;
+    var senha = h("input", { type: "password", id: "senha", autocomplete: "current-password" }), aviso = status(mensagem, true);
+    var form = h("form", { class: "ficha", style: "max-width:460px" }, [h("h2", { text: "Acesso do administrador" }), campo("Senha", senha), h("div", { class: "acoes" }, h("button", { class: "botao", type: "submit", text: "Entrar" })), aviso]);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      api("POST", "/api/admin/entrar", { senha: senha.value }).then(function () { ir("provas"); }, function (e) { aviso.textContent = e.message; senha.value = ""; senha.focus(); });
+    });
+    raiz.textContent = ""; raiz.appendChild(form); senha.focus();
+  }
+
+  /* ----------------------------- provas ---------------------------- */
+  function telaProvas() {
+    menu("provas");
+    carregarProvas().then(function (lista) {
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, [h("h1", { text: "Provas" }), h("button", { class: "botao", type: "button", text: "Nova prova", onclick: function () { telaProva(null); } })]));
+      if (!lista.length) { raiz.appendChild(h("p", { class: "entrada", text: "Nenhuma prova cadastrada. Crie a primeira para definir as regras, as questões e os participantes." })); return; }
+      var corpo = h("tbody");
+      lista.forEach(function (p) {
+        var abrir = function (f) { return function () { provaAtual = p.id; try { localStorage.setItem("pct-prova", p.id); } catch (e) {} f(p.id); }; };
+        corpo.appendChild(h("tr", null, [
+          h("td", null, [h("strong", { text: p.titulo, style: "font:600 19px/1.3 var(--titulo)" }), h("br"), h("span", { class: "nota", text: p.duracaoMin + " minutos · " + (p.consulta === "nenhuma" ? "sem consulta" : "com consulta") })]),
+          h("td", { class: "n", text: p.questoes }), h("td", { class: "n", text: p.convites }), h("td", { class: "n", text: p.emAndamento }), h("td", { class: "n", text: p.encerradas }),
+          h("td", null, h("div", { class: "acoes" }, [
+            h("button", { class: "botao sec menor", type: "button", text: "Regras", onclick: abrir(telaProva) }),
+            h("button", { class: "botao sec menor", type: "button", text: "Questões", onclick: abrir(telaQuestoes) }),
+            h("button", { class: "botao sec menor", type: "button", text: "Participantes", onclick: abrir(telaParticipantes) }),
+            h("button", { class: "botao sec menor", type: "button", text: "Acompanhar", onclick: abrir(function () { ir("vivo"); }) }),
+            h("button", { class: "botao sec menor", type: "button", text: "Sessões", onclick: abrir(function () { ir("sessoes"); }) })
+          ]))
+        ]));
+      });
+      raiz.appendChild(h("div", { class: "rolagem" }, h("table", { class: "lista" }, [h("thead", null, h("tr", null, ["Prova", "Questões", "Participantes", "Em andamento", "Encerradas", "Ações"].map(function (t) { return h("th", { text: t }); }))), corpo])));
+    }).catch(function () {});
+  }
+
+  function telaProva(id) {
+    menu("provas"); limparTemporizadores();
+    (id ? api("GET", "/api/admin/provas/" + id) : Promise.resolve({ titulo: "", duracaoMin: 60, instrucoes: "", consulta: "nenhuma", textoConsulta: "", ordemAleatoria: true, embaralharAlternativas: true, inicioEm: null, fimEm: null,
+      regras: { limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 0, gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true, avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10 } })).then(function (p) {
+      var r = p.regras, local = function (iso) { if (!iso) return ""; var d = new Date(iso); return d.getFullYear() + "-" + dois(d.getMonth() + 1) + "-" + dois(d.getDate()) + "T" + dois(d.getHours()) + ":" + dois(d.getMinutes()); };
+      var e = {
+        titulo: h("input", { type: "text", value: p.titulo, maxlength: "200", required: true }), duracao: h("input", { type: "number", min: "1", max: "600", value: p.duracaoMin }),
+        instrucoes: h("textarea", { value: p.instrucoes }), consulta: h("select", null, [h("option", { value: "nenhuma", text: "Sem consulta" }), h("option", { value: "texto", text: "Com consulta: texto exibido na janela da prova" }), h("option", { value: "pdf", text: "Com consulta: PDF exibido na janela da prova" })]),
+        texto: h("textarea", { value: p.textoConsulta, style: "min-height:180px" }), pdf: h("input", { type: "file", accept: "application/pdf,.pdf" }),
+        ordem: h("input", { type: "checkbox", checked: p.ordemAleatoria }), embaralhar: h("input", { type: "checkbox", checked: p.embaralharAlternativas }),
+        inicio: h("input", { type: "datetime-local", value: local(p.inicioEm) }), fim: h("input", { type: "datetime-local", value: local(p.fimEm) }),
+        limite: h("input", { type: "number", min: "0", max: "20", value: r.limiteSuspensoes }), aviso: h("input", { type: "number", min: "0.5", max: "30", step: "0.5", value: r.avisoSeg }), susp: h("input", { type: "number", min: "1", max: "60", step: "0.5", value: r.suspensaoSeg }),
+        semPausas: h("input", { type: "number", min: "0", max: "300", value: r.semPausasSeg }), queda: h("input", { type: "number", min: "1", max: "120", value: r.quedaMaximaMin }),
+        vida: h("select", null, [h("option", { value: "registrar", text: "Aplicar; se não concluída, prosseguir com registro" }), h("option", { value: "obrigatoria", text: "Obrigatória para iniciar" }), h("option", { value: "nao", text: "Não aplicar" })]),
+        identidade: h("input", { type: "checkbox", checked: r.identidade }), varredura: h("input", { type: "checkbox", checked: r.varreduraAmbiente }),
+        tela: h("input", { type: "checkbox", checked: r.gravarTela }), camera: h("input", { type: "checkbox", checked: r.gravarCamera }), inteira: h("input", { type: "checkbox", checked: r.exigirTelaInteiraCompartilhada }),
+        calc: h("input", { type: "checkbox", checked: r.calculadora }), rasc: h("input", { type: "checkbox", checked: r.rascunho })
+      };
+      e.consulta.value = p.consulta; e.vida.value = r.provaDeVida;
+      var blocoTexto = campo("Texto de consulta", e.texto), blocoPdf = campo("Arquivo PDF de consulta", e.pdf, id ? "Selecione um arquivo para enviar ou substituir o material atual. Até 30 MB." : "O envio fica disponível depois de salvar a prova.");
+      var alternar = function () { blocoTexto.hidden = e.consulta.value !== "texto"; blocoPdf.hidden = e.consulta.value !== "pdf"; };
+      e.consulta.addEventListener("change", alternar); alternar();
+      var aviso = status("");
+      var form = h("form", null, [
+        h("div", { class: "topo" }, [h("h1", { text: id ? "Regras da prova" : "Nova prova" }), h("button", { class: "botao sec", type: "button", text: "Voltar às provas", onclick: function () { ir("provas"); } })]),
+        h("div", { class: "grade" }, [campo("Título", e.titulo), campo("Duração, em minutos", e.duracao)]),
+        h("div", { style: "margin-top:14px" }, campo("Instruções exibidas ao participante antes do início", e.instrucoes)),
+        h("div", { class: "grupo" }, [h("h2", { text: "Modalidade" }), campo("Consulta", e.consulta), blocoTexto, blocoPdf,
+          h("p", { class: "nota", text: "O material de consulta aparece dentro da janela da prova, para que o participante não precise sair dela." })]),
+        h("div", { class: "grupo" }, [h("h2", { text: "Aplicação" }), h("div", { class: "grade" }, [campo("Abertura (opcional)", e.inicio), campo("Encerramento da janela de aplicação (opcional)", e.fim)]),
+          marcar("Sortear a ordem das questões para cada participante", e.ordem), marcar("Embaralhar as alternativas de cada questão", e.embaralhar)]),
+        h("div", { class: "grupo" }, [h("h2", { text: "Fiscalização" }),
+          h("div", { class: "grade" }, [campo("Suspensões até o bloqueio (0 para não bloquear)", e.limite), campo("Olhar ou rosto fora: segundos até a advertência", e.aviso), campo("Segundos adicionais até a suspensão", e.susp),
+            campo("Sem pausas: segundos de rosto fora da imagem que invalidam a prova (0 para desligar)", e.semPausas), campo("Interrupção máxima, em minutos, antes de exigir liberação", e.queda), campo("Prova de vida", e.vida)]),
+          marcar("Registrar a identidade: foto do rosto e do documento", e.identidade), marcar("Varredura do ambiente: quatro imagens com a câmera antes do início", e.varredura),
+          marcar("Exigir o compartilhamento da tela inteira", e.inteira), marcar("Gravar a tela e o áudio durante toda a sessão", e.tela), marcar("Gravar a câmera durante toda a sessão", e.camera)]),
+        h("div", { class: "grupo" }, [h("h2", { text: "Recursos na tela da prova" }), marcar("Calculadora", e.calc), marcar("Rascunho", e.rasc)]),
+        h("div", { class: "acoes", style: "margin-top:26px" }, [h("button", { class: "botao", type: "submit", text: "Salvar a prova" }),
+          id ? h("button", { class: "botao sec", type: "button", text: "Arquivar a prova", onclick: function (ev) { var b = ev.target; if (b.getAttribute("data-c")) api("DELETE", "/api/admin/provas/" + id).then(function () { ir("provas"); }); else { b.setAttribute("data-c", "1"); b.textContent = "Confirmar o arquivamento"; } } }) : null]),
+        aviso
+      ]);
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault(); aviso.className = "nota"; aviso.textContent = "Salvando.";
+        var dados = { titulo: e.titulo.value.trim(), duracaoMin: Number(e.duracao.value), instrucoes: e.instrucoes.value, consulta: e.consulta.value, textoConsulta: e.texto.value, ordemAleatoria: e.ordem.checked, embaralharAlternativas: e.embaralhar.checked,
+          inicioEm: e.inicio.value ? new Date(e.inicio.value).toISOString() : null, fimEm: e.fim.value ? new Date(e.fim.value).toISOString() : null,
+          regras: { limiteSuspensoes: Number(e.limite.value), avisoSeg: Number(e.aviso.value), suspensaoSeg: Number(e.susp.value), semPausasSeg: Number(e.semPausas.value), quedaMaximaMin: Number(e.queda.value), provaDeVida: e.vida.value,
+            identidade: e.identidade.checked, varreduraAmbiente: e.varredura.checked, gravarTela: e.tela.checked, gravarCamera: e.camera.checked, exigirTelaInteiraCompartilhada: e.inteira.checked, calculadora: e.calc.checked, rascunho: e.rasc.checked } };
+        (id ? api("PUT", "/api/admin/provas/" + id, dados) : api("POST", "/api/admin/provas", dados)).then(function (salva) {
+          var arquivo = e.pdf.files && e.pdf.files[0];
+          if (!arquivo || e.consulta.value !== "pdf") return salva;
+          return fetch("/api/admin/provas/" + salva.id + "/material", { method: "PUT", body: arquivo, credentials: "same-origin" }).then(function (x) { if (!x.ok) throw new Error("A prova foi salva, mas o envio do PDF não foi concluído."); return salva; });
+        }).then(function (salva) { provaAtual = salva.id; if (!id) telaQuestoes(salva.id); else { aviso.textContent = "Prova salva."; } }, function (er) { aviso.className = "alerta"; aviso.textContent = er.message; });
+      });
+      raiz.textContent = ""; raiz.appendChild(form);
+    }).catch(function () {});
+  }
+
+  /* ----------------------------- questões -------------------------- */
+  function telaQuestoes(id) {
+    menu("provas"); limparTemporizadores();
+    api("GET", "/api/admin/provas/" + id).then(function (p) {
+      var lista = (p.questoes || []).map(function (q) { return { caso: q.caso || "", enunciado: q.enunciado || "", alternativas: (q.alternativas || []).slice(), correta: q.correta, pontos: q.pontos || 1 }; });
+      var caixa = h("div"), aviso = status("");
+      function desenhar() {
+        caixa.textContent = "";
+        if (!lista.length) caixa.appendChild(h("p", { class: "nota", text: "Nenhuma questão cadastrada." }));
+        lista.forEach(function (q, i) {
+          var nome = "q" + i + "-" + Math.random().toString(36).slice(2, 6);
+          var alts = h("div", { style: "display:grid;gap:8px" });
+          q.alternativas.forEach(function (a, k) {
+            var radio = h("input", { type: "radio", name: nome, checked: q.correta === k, "aria-label": "Alternativa " + "ABCDEFGHIJ"[k] + " é a correta", onchange: function () { q.correta = k; } });
+            var texto = h("input", { type: "text", value: a, "aria-label": "Texto da alternativa " + "ABCDEFGHIJ"[k], oninput: function (ev) { q.alternativas[k] = ev.target.value; } });
+            alts.appendChild(h("div", { class: "alt" }, [radio, h("span", { text: "ABCDEFGHIJ"[k] }), texto,
+              q.alternativas.length > 2 ? h("button", { class: "botao sec menor", type: "button", text: "Remover", onclick: function () { q.alternativas.splice(k, 1); if (q.correta === k) q.correta = undefined; else if (q.correta > k) q.correta--; desenhar(); } }) : h("span")]));
+          });
+          caixa.appendChild(h("div", { class: "questao" }, [
+            h("header", null, [h("b", { text: "Questão " + (i + 1) }), h("div", { class: "acoes" }, [
+              i > 0 ? h("button", { class: "botao sec menor", type: "button", text: "Subir", onclick: function () { lista.splice(i - 1, 0, lista.splice(i, 1)[0]); desenhar(); } }) : null,
+              h("button", { class: "botao sec menor", type: "button", text: "Excluir", onclick: function () { lista.splice(i, 1); desenhar(); } })])]),
+            campo("Caso ou texto de apoio (opcional)", h("textarea", { value: q.caso, style: "min-height:70px", oninput: function (ev) { q.caso = ev.target.value; } })),
+            campo("Enunciado", h("textarea", { value: q.enunciado, style: "min-height:80px", oninput: function (ev) { q.enunciado = ev.target.value; } })),
+            h("p", { class: "nota", style: "margin:0", text: "Alternativas: assinale a correta." }), alts,
+            h("div", { class: "acoes" }, [q.alternativas.length < 10 ? h("button", { class: "botao sec menor", type: "button", text: "Adicionar alternativa", onclick: function () { q.alternativas.push(""); desenhar(); } }) : null,
+              h("label", { class: "campo", style: "grid-template-columns:auto 90px;align-items:center;gap:10px" }, ["Pontos", h("input", { type: "number", min: "0.5", step: "0.5", value: q.pontos, oninput: function (ev) { q.pontos = Number(ev.target.value) || 1; } })])])
+          ]));
+        });
+      }
+      var texto = h("textarea", { style: "min-height:160px;font:400 15px/1.4 ui-monospace,Menlo,monospace", placeholder: '[{"caso":"","enunciado":"...","alternativas":["...","..."],"correta":0,"pontos":1}]' });
+      var importar = h("details", { class: "grupo" }, [h("summary", { text: "Importar ou exportar as questões em JSON", style: "cursor:pointer;font:600 17px/1.3 var(--titulo)" }),
+        h("p", { class: "nota", text: "O campo correta indica a posição da alternativa certa, começando em zero. A importação substitui a lista exibida; a gravação só ocorre ao salvar." }), texto,
+        h("div", { class: "acoes" }, [h("button", { class: "botao sec menor", type: "button", text: "Importar para a lista", onclick: function () {
+          try { var v = JSON.parse(texto.value); if (!Array.isArray(v)) throw new Error(); lista = v.map(function (q) { return { caso: q.caso || "", enunciado: q.enunciado || "", alternativas: (q.alternativas || []).map(String), correta: q.correta, pontos: q.pontos || 1 }; }); desenhar(); aviso.className = "nota"; aviso.textContent = lista.length + " questões importadas para a lista. Salve para gravar."; }
+          catch (x) { aviso.className = "alerta"; aviso.textContent = "O texto não é uma lista de questões em JSON válida."; } } }),
+          h("button", { class: "botao sec menor", type: "button", text: "Exportar a lista", onclick: function () { texto.value = JSON.stringify(lista, null, 2); } })])]);
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, [h("div", null, [h("p", { class: "sobre", text: p.titulo }), h("h1", { text: "Questões" })]), h("button", { class: "botao sec", type: "button", text: "Voltar às provas", onclick: function () { ir("provas"); } })]));
+      raiz.appendChild(h("p", { class: "aviso-topo", text: "As questões e o gabarito ficam somente no servidor. O participante recebe uma questão por vez, depois da verificação, sem a indicação da alternativa correta." }));
+      raiz.appendChild(caixa);
+      raiz.appendChild(h("div", { class: "acoes" }, [h("button", { class: "botao sec", type: "button", text: "Adicionar questão", onclick: function () { lista.push({ caso: "", enunciado: "", alternativas: ["", "", "", ""], correta: undefined, pontos: 1 }); desenhar(); } }),
+        h("button", { class: "botao", type: "button", text: "Salvar as questões", onclick: function () {
+          api("PUT", "/api/admin/provas/" + id + "/questoes", { questoes: lista }).then(function (r) { aviso.className = "nota"; aviso.textContent = r.total + " questões gravadas."; }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message + (e.detalhes ? " " + e.detalhes.join(" ") : ""); });
+        } })]));
+      raiz.appendChild(h("div", { style: "margin-top:12px" }, aviso));
+      raiz.appendChild(importar);
+      desenhar();
+    }).catch(function () {});
+  }
+
+  /* ----------------------------- participantes --------------------- */
+  function telaParticipantes(id) {
+    menu("provas"); limparTemporizadores();
+    var p = provas.filter(function (x) { return x.id === id; })[0] || { titulo: "" };
+    var corpo = h("tbody"), aviso = status("");
+    function desenhar(lista) {
+      corpo.textContent = "";
+      if (!lista.length) corpo.appendChild(h("tr", null, h("td", { colspan: "5", class: "nota", text: "Nenhum participante cadastrado para esta prova." })));
+      lista.forEach(function (c) {
+        var bc = h("button", { class: "botao sec menor", type: "button", text: "Copiar o endereço", onclick: function () { copiar(c.endereco, bc); } });
+        corpo.appendChild(h("tr", null, [h("td", null, [h("strong", { text: c.nome, style: "font:600 18px/1.3 var(--titulo)" }), c.email ? h("br") : null, c.email ? h("span", { class: "nota", text: c.email }) : null]),
+          h("td", { text: c.alunoId }), h("td", { text: c.origem === "pionira" ? "Pionira" : "Administrador" }), h("td", { text: c.situacao }),
+          h("td", null, h("div", { class: "acoes" }, [bc, !c.sessao ? h("button", { class: "botao sec menor", type: "button", text: "Excluir", onclick: function () { api("DELETE", "/api/admin/provas/" + id + "/convites/" + c.codigo).then(desenhar, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); } }) : null]))]));
+      });
+    }
+    var nome = h("input", { type: "text", maxlength: "200" }), email = h("input", { type: "email", maxlength: "200" }), ident = h("input", { type: "text", maxlength: "120" });
+    var lote = h("textarea", { placeholder: "Nome completo; e-mail; identificador", style: "min-height:120px" });
+    var incluir = function (alunos) { return api("POST", "/api/admin/provas/" + id + "/convites", { alunos: alunos }).then(function (l) { desenhar(l); aviso.className = "nota"; aviso.textContent = "Lista atualizada."; }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); };
+    raiz.textContent = "";
+    raiz.appendChild(h("div", { class: "topo" }, [h("div", null, [h("p", { class: "sobre", text: p.titulo }), h("h1", { text: "Participantes" })]), h("button", { class: "botao sec", type: "button", text: "Voltar às provas", onclick: function () { ir("provas"); } })]));
+    raiz.appendChild(h("p", { class: "aviso-topo", text: "Cada participante recebe um endereço próprio e intransferível. Com a integração ativa, a Pionira cria esses endereços no momento em que o aluno abre a prova." }));
+    raiz.appendChild(h("div", { class: "rolagem" }, h("table", { class: "lista" }, [h("thead", null, h("tr", null, ["Participante", "Identificador", "Origem", "Situação", "Ações"].map(function (t) { return h("th", { text: t }); }))), corpo])));
+    raiz.appendChild(h("form", { class: "grupo", onsubmit: function (ev) { ev.preventDefault(); if (!nome.value.trim()) return; incluir([{ nome: nome.value, email: email.value, id: ident.value }]).then(function () { nome.value = email.value = ident.value = ""; }); } },
+      [h("h2", { text: "Incluir participante" }), h("div", { class: "grade" }, [campo("Nome completo", nome), campo("E-mail (opcional)", email), campo("Identificador na Pionira ou na turma (opcional)", ident)]), h("div", { class: "acoes" }, h("button", { class: "botao", type: "submit", text: "Incluir" }))]));
+    raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Incluir vários participantes" }), campo("Um participante por linha, com os campos separados por ponto e vírgula", lote),
+      h("div", { class: "acoes" }, h("button", { class: "botao sec", type: "button", text: "Incluir a lista", onclick: function () {
+        var alunos = lote.value.split(/\n/).map(function (l) { var c = l.split(";").map(function (x) { return x.trim(); }); return { nome: c[0], email: c[1] || "", id: c[2] || "" }; }).filter(function (a) { return a.nome; });
+        if (alunos.length) incluir(alunos).then(function () { lote.value = ""; });
+      } })), aviso]));
+    api("GET", "/api/admin/provas/" + id + "/convites").then(desenhar).catch(function () {});
+  }
+
+  /* ----------------------------- acompanhamento ao vivo ------------ */
+  var cartoes = {}, conversaAberta = null, conversaAte = 0;
+  function telaVivo() {
+    menu("vivo"); limparTemporizadores(); cartoes = {};
+    carregarProvas().then(function () {
+      var grade = h("div", { class: "vivo" }), vazio = h("p", { class: "entrada", text: "Nenhuma sessão em andamento nesta prova." }), resumo = h("p", { class: "nota", role: "status", style: "margin:0" });
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, [h("h1", { text: "Acompanhamento ao vivo" }), seletorProva(function () { grade.textContent = ""; cartoes = {}; atualizar(); }, true)]));
+      raiz.appendChild(resumo); raiz.appendChild(vazio); raiz.appendChild(grade);
+      function atualizar() {
+        api("GET", "/api/admin/ao-vivo" + (provaAtual ? "?prova=" + provaAtual : "")).then(function (d) {
+          vazio.hidden = d.sessoes.length > 0;
+          var ativos = {}, bloqueadas = 0, semSinal = 0, mensagens = 0;
+          d.sessoes.forEach(function (s) { ativos[s.id] = 1; if (s.bloqueada && s.estado !== "encerrada") bloqueadas++; if (s.semSinalMs > 20000) semSinal++; mensagens += s.naoLidas; atualizarCartao(grade, s, d.agora); });
+          Object.keys(cartoes).forEach(function (id) { if (!ativos[id]) { cartoes[id].el.remove(); delete cartoes[id]; } });
+          resumo.textContent = d.sessoes.length ? "Sessões exibidas: " + d.sessoes.length + ". Bloqueadas: " + bloqueadas + ". Sem sinal: " + semSinal + ". Mensagens não lidas: " + mensagens + "." : "";
+        }).catch(function () {});
+      }
+      atualizar(); temporizadores.push(setInterval(atualizar, 3000));
+    }).catch(function () {});
+  }
+  function situacaoVivo(s) {
+    if (s.estado === "encerrada") return ["vazio", "Encerrada: " + (SITUACOES[s.situacao] || s.situacao || "").toLowerCase()];
+    if (s.semSinalMs > 20000) return ["critico", "Sem sinal há " + relogio(s.semSinalMs)];
+    if (s.bloqueada) return ["critico", "Bloqueada, aguarda liberação"];
+    if (s.suspensa) return ["atencao", "Suspensa: " + (s.motivos || []).map(function (m) { return MOTIVOS[m] || m; }).join(", ")];
+    if (s.inicio && s.fase && s.fase !== "prova") return ["atencao", "Em nova verificação, depois de interrupção"];
+    return s.inicio ? ["positivo", "Em prova"] : ["", "Em verificação"];
+  }
+  function atualizarCartao(grade, s, agora) {
+    var c = cartoes[s.id];
+    if (!c) {
+      c = cartoes[s.id] = {};
+      c.selo = h("span", { class: "selo" }); c.cam = h("img", { alt: "Câmera do participante" }); c.tela = h("img", { class: "tela", alt: "Tela do participante" });
+      c.m = {}; var dl = h("dl", { class: "medidas" });
+      [["tempo", "Tempo restante"], ["questao", "Questão"], ["resp", "Respondidas"], ["susp", "Suspensões"], ["adv", "Advertências"], ["quedas", "Interrupções"]].forEach(function (x) { c.m[x[0]] = h("dd"); dl.appendChild(h("div", null, [h("dt", { text: x[1] }), c.m[x[0]]])); });
+      c.alertas = h("ul"); c.aviso = status("");
+      c.bMsg = h("button", { class: "botao sec menor", type: "button", onclick: function () { abrirConversa(s.id, s.aluno.nome); } });
+      c.bLib = h("button", { class: "botao menor", type: "button", text: "Liberar o bloqueio", onclick: function () { comando(s.id, "liberar", c); } });
+      var confirmar = function (tipo, rotulo) { var b = h("button", { class: "botao sec menor", type: "button", text: rotulo }); b.addEventListener("click", function () {
+        if (b.getAttribute("data-c")) { b.removeAttribute("data-c"); b.textContent = rotulo; comando(s.id, tipo, c); } else { b.setAttribute("data-c", "1"); b.textContent = "Confirmar: " + rotulo.toLowerCase(); setTimeout(function () { b.removeAttribute("data-c"); b.textContent = rotulo; }, 5000); } }); return b; };
+      c.bSusp = confirmar("suspender", "Suspender"); c.bEnc = confirmar("encerrar", "Encerrar"); c.bInv = confirmar("invalidar", "Invalidar");
+      c.bAud = h("button", { class: "botao sec menor", type: "button", text: "Auditar", onclick: function () { telaAuditoria(s.id); } });
+      c.acoes = h("div", { class: "acoes" }, [c.bMsg, c.bLib, c.bSusp, c.bEnc, c.bInv, c.bAud]);
+      c.el = h("article", { class: "cartao" }, [h("header", null, [h("b", { text: s.aluno.nome || "Participante" }), c.selo]), h("div", { class: "imagens" }, [c.cam, c.tela]), dl, c.alertas, c.acoes, c.aviso]);
+      grade.appendChild(c.el);
+    }
+    var sit = situacaoVivo(s), encerrada = s.estado === "encerrada";
+    c.selo.className = "selo " + sit[0]; c.selo.textContent = sit[1];
+    c.el.className = "cartao" + ((s.bloqueada || s.semSinalMs > 20000 || s.naoLidas) && !encerrada ? " urgente" : "");
+    if (s.quadroEm && c.quadroEm !== s.quadroEm) { c.quadroEm = s.quadroEm; c.cam.src = "/api/admin/sessoes/" + s.id + "/quadro/camera?t=" + s.quadroEm; c.tela.src = "/api/admin/sessoes/" + s.id + "/quadro/tela?t=" + s.quadroEm; }
+    c.m.tempo.textContent = s.inicio && !encerrada ? relogio(s.fimPrevisto - agora) : (encerrada ? "encerrada" : "não iniciada");
+    c.m.questao.textContent = s.questaoAtual ? s.questaoAtual + " de " + s.totalQuestoes : "";
+    c.m.resp.textContent = s.totalQuestoes ? s.respondidas + " de " + s.totalQuestoes : "";
+    c.m.susp.textContent = String(s.suspensoes); c.m.adv.textContent = String(s.advertencias); c.m.quedas.textContent = String(s.quedas);
+    c.alertas.textContent = "";
+    (s.alertas || []).slice(0, 4).forEach(function (a) { c.alertas.appendChild(h("li", { class: a.classe, text: (s.inicioProvaT !== null && s.inicioProvaT !== undefined && a.t >= s.inicioProvaT ? relogio(a.t - s.inicioProvaT) + " " : "") + a.titulo })); });
+    c.bMsg.textContent = "Mensagens" + (s.naoLidas ? " (" + s.naoLidas + " nova" + (s.naoLidas > 1 ? "s" : "") + ")" : "");
+    c.bMsg.className = "botao menor" + (s.naoLidas ? "" : " sec");
+    c.bLib.hidden = !s.bloqueada || encerrada; c.bSusp.hidden = encerrada || !s.inicio || s.suspensa; c.bEnc.hidden = encerrada; c.bInv.hidden = encerrada; c.bAud.hidden = false;
+  }
+  function comando(id, tipo, c) {
+    api("POST", "/api/admin/sessoes/" + id + "/comando", { tipo: tipo }).then(function (r) {
+      c.aviso.className = "nota"; c.aviso.textContent = r.aplicado === "servidor" ? "Comando aplicado no servidor, pois a sessão estava sem sinal." : "Comando enviado. A sessão o executa em até quatro segundos.";
+      setTimeout(function () { c.aviso.textContent = ""; }, 6000);
+    }, function (e) { c.aviso.className = "alerta"; c.aviso.textContent = e.message; });
+  }
+  function abrirConversa(id, nome) {
+    conversaAberta = id; conversaAte = 0;
+    document.getElementById("conversa-nome").textContent = "Mensagens: " + nome;
+    document.getElementById("conversa-lista").textContent = "";
+    document.getElementById("conversa").hidden = false;
+    lerConversa(); document.getElementById("conversa-texto").focus();
+  }
+  function lerConversa(novo) {
+    if (!conversaAberta) return;
+    var id = conversaAberta;
+    api(novo ? "POST" : "GET", "/api/admin/sessoes/" + id + "/conversa", novo ? { texto: novo } : undefined).then(function (l) {
+      if (id !== conversaAberta) return;
+      var lista = document.getElementById("conversa-lista");
+      l.filter(function (m) { return m.id > conversaAte; }).forEach(function (m) { conversaAte = m.id; lista.appendChild(h("li", { class: m.de === "admin" ? "admin" : "" }, [h("small", { text: (m.de === "admin" ? "Administrador" : "Participante") + " · " + new Date(m.quando).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) }), m.texto])); lista.scrollTop = lista.scrollHeight; });
+    }).catch(function () {});
+  }
+  setInterval(function () { if (conversaAberta && !document.getElementById("conversa").hidden) lerConversa(); }, 3000);
+  document.getElementById("conversa-fechar").addEventListener("click", function () { conversaAberta = null; document.getElementById("conversa").hidden = true; });
+  document.getElementById("conversa-form").addEventListener("submit", function (ev) { ev.preventDefault(); var t = document.getElementById("conversa-texto"), texto = t.value.trim(); if (!texto) return; t.value = ""; lerConversa(texto); });
+
+  /* ----------------------------- sessões e auditoria --------------- */
+  function telaSessoes() {
+    menu("sessoes"); limparTemporizadores();
+    carregarProvas().then(function () {
+      var corpo = h("tbody");
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, [h("h1", { text: "Sessões e auditoria" }), seletorProva(carregar, true)]));
+      raiz.appendChild(h("div", { class: "rolagem" }, h("table", { class: "lista" }, [h("thead", null, h("tr", null, ["Participante", "Situação", "Início", "Nota", "Suspensões", "Advertências", "Interrupções", "Decisão", "Ações"].map(function (t) { return h("th", { text: t }); }))), corpo])));
+      function carregar() {
+        api("GET", "/api/admin/sessoes" + (provaAtual ? "?prova=" + provaAtual : "")).then(function (l) {
+          corpo.textContent = "";
+          if (!l.length) corpo.appendChild(h("tr", null, h("td", { colspan: "9", class: "nota", text: "Nenhuma sessão registrada." })));
+          l.forEach(function (s) {
+            corpo.appendChild(h("tr", null, [h("td", null, h("strong", { text: s.aluno.nome || "", style: "font:600 18px/1.3 var(--titulo)" })),
+              h("td", { text: s.estado === "encerrada" ? (SITUACOES[s.situacao] || s.situacao) : (s.inicio ? "Em andamento" : "Em verificação") }), h("td", { class: "n", text: dataHora(s.inicio || s.criada) }),
+              h("td", { class: "n", text: s.estado === "encerrada" && s.total ? String(s.nota).replace(".", ",") + " de " + String(s.total).replace(".", ",") : "" }),
+              h("td", { class: "n", text: s.suspensoes }), h("td", { class: "n", text: s.advertencias }), h("td", { class: "n", text: s.quedas }),
+              h("td", { text: s.situacaoFinal === "valida" ? "Válida" : s.situacaoFinal === "invalidada" ? "Invalidada" : "Pendente" }),
+              h("td", null, h("button", { class: "botao sec menor", type: "button", text: "Auditar", onclick: function () { telaAuditoria(s.id); } }))]));
+          });
+        }).catch(function () {});
+      }
+      carregar();
+    }).catch(function () {});
+  }
+
+  function paraDados(url) { return fetch(url, { credentials: "same-origin" }).then(function (r) { if (!r.ok) throw new Error(); return r.blob(); }).then(function (b) { return new Promise(function (ok, no) { var f = new FileReader(); f.onload = function () { ok(f.result); }; f.onerror = no; f.readAsDataURL(b); }); }); }
+  function comImagensEmbutidas(reg) {   // cópia do registro com as evidências dentro do próprio arquivo, para o relatório
+    var copia = JSON.parse(JSON.stringify(reg)), tarefas = [];
+    copia.eventos.forEach(function (ev) {
+      var usar = ev.classe === "suspensao" || ev.classe === "revisao" || /^(identidade_|ambiente)/.test(ev.tipo);
+      if (!ev.evidencias) return;
+      Object.keys(ev.evidencias).forEach(function (k) {
+        if (!usar || k === "audio") { delete ev.evidencias[k]; return; }
+        tarefas.push(paraDados(ev.evidencias[k]).then(function (d) { ev.evidencias[k] = d; }, function () { delete ev.evidencias[k]; }));
+      });
+    });
+    return Promise.all(tarefas).then(function () { return copia; });
+  }
+
+  function telaAuditoria(id) {
+    menu("sessoes"); limparTemporizadores(); document.getElementById("conversa").hidden = true; conversaAberta = null;
+    api("GET", "/api/admin/sessoes/" + id).then(function (reg) {
+      var caixaPainel = h("div"), aviso = status("");
+      var decisao = h("select", null, [h("option", { value: "", text: "Decisão pendente" }), h("option", { value: "valida", text: "Prova válida" }), h("option", { value: "invalidada", text: "Prova invalidada" })]);
+      decisao.value = reg.situacaoFinal || ""; decisao.style.maxWidth = "260px";
+      var salvar = function (rev) { return api("PUT", "/api/admin/sessoes/" + id + "/revisao", { decisoes: rev.decisoes, parecer: rev.parecer, situacaoFinal: decisao.value }); };
+      decisao.addEventListener("change", function () { salvar(reg.revisao).then(function () { aviso.className = "nota"; aviso.textContent = "Decisão registrada."; }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); });
+      var extraRelatorio = function () { return { sessao: reg.sessao, situacaoFinal: decisao.value === "valida" ? "Prova válida" : decisao.value === "invalidada" ? "Prova invalidada" : "", conversa: reg.conversa }; };
+      var linhasResp = h("tbody");
+      (reg.respostas || []).forEach(function (x) { linhasResp.appendChild(h("tr", null, [h("td", { class: "n", text: x["questão"] }), h("td", { text: x.enunciado }), h("td", { class: "n", text: x.alternativa || "Sem resposta" }), h("td", null, x.alternativa ? h("span", { class: "selo " + (x.correta ? "positivo" : "critico"), text: x.correta ? "Correta" : "Incorreta" }) : h("span", { class: "selo vazio", text: "Em branco" }))])); });
+      var gravs = h("div", { class: "acoes" });
+      ["tela", "camera"].forEach(function (t) { (reg.gravacoes[t] || []).forEach(function (g, i) {
+        gravs.appendChild(h("a", { class: "botao sec menor", href: "/api/admin/sessoes/" + id + "/gravacao/" + t + "/" + g.segmento, download: g.arquivo, style: "text-decoration:none",
+          text: "Baixar a gravação da " + (t === "tela" ? "tela" : "câmera") + ((reg.gravacoes[t] || []).length > 1 ? ", trecho " + (i + 1) : "") + " (" + ProctoriaPainel.tamanho(g.bytes) + ")" }));
+      }); });
+      if (!gravs.childNodes.length) gravs.appendChild(h("span", { class: "nota", text: "Nenhuma gravação recebida para esta sessão." }));
+      var pio = reg.pionira, campoPio = h("dd", { text: pio ? "Resultado liberado em " + new Date(pio.liberadoEm).toLocaleString("pt-BR") : "Resultado ainda não liberado" });
+      var bPio = h("button", { class: "botao sec menor", type: "button", text: pio ? "Reenviar o resultado à Pionira" : "Liberar o resultado para a Pionira", onclick: function () {
+        api("POST", "/api/admin/sessoes/" + id + "/pionira").then(function (r) { aviso.className = "nota"; aviso.textContent = r.destino ? "Resultado enviado à Pionira. Resposta do endereço de retorno: " + (r.status || "sem resposta") + "." : "Resultado liberado para consulta da Pionira. Nenhum endereço de retorno está configurado."; bPio.textContent = "Reenviar o resultado à Pionira"; campoPio.textContent = "Resultado liberado em " + new Date(r.liberadoEm).toLocaleString("pt-BR"); },
+          function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); } });
+      var bExc = h("button", { class: "botao sec menor", type: "button", text: "Excluir a sessão e os arquivos", onclick: function () { if (bExc.getAttribute("data-c")) api("DELETE", "/api/admin/sessoes/" + id).then(function () { ir("sessoes"); }); else { bExc.setAttribute("data-c", "1"); bExc.textContent = "Confirmar a exclusão definitiva"; } } });
+      var bRel = h("button", { class: "botao menor", type: "button", text: "Baixar o relatório formal", onclick: function () {
+        bRel.disabled = true; comImagensEmbutidas(reg).then(function (c) { ProctoriaRelatorio.baixar(c, extraRelatorio(), "relatorio_" + reg.sessao + ".html"); }).then(function () { bRel.disabled = false; }, function () { bRel.disabled = false; }); } });
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, [h("h1", { text: "Auditoria da sessão" }), h("button", { class: "botao sec", type: "button", text: "Voltar às sessões", onclick: function () { ir("sessoes"); } })]));
+      raiz.appendChild(h("div", { class: "ficha", style: "margin-bottom:30px" }, [
+        h("dl", { class: "dados" }, [h("div", null, [h("dt", { text: "Nota apurada" }), h("dd", { text: reg.total ? String(reg.nota).replace(".", ",") + " de " + String(reg.total).replace(".", ",") : "Sessão em andamento" })]),
+          h("div", null, [h("dt", { text: "Interrupções" }), h("dd", { text: String(reg.resumo.quedas || 0) })]),
+          h("div", null, [h("dt", { text: "Pionira" }), campoPio])]),
+        campo("Decisão final do administrador", decisao), h("h3", { text: "Arquivos da sessão", style: "margin:6px 0 0" }), gravs,
+        h("div", { class: "acoes" }, [bRel, bPio, bExc]), aviso]));
+      raiz.appendChild(caixaPainel);
+      if ((reg.respostas || []).length) raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Respostas do participante" }),
+        h("div", { class: "rolagem" }, h("table", { class: "lista" }, [h("thead", null, h("tr", null, ["Questão", "Enunciado", "Resposta", "Resultado"].map(function (t) { return h("th", { text: t }); }))), linhasResp]))]));
+      if ((reg.conversa || []).length) raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Mensagens trocadas" }), h("ol", { style: "margin:0;padding-left:22px;display:grid;gap:6px" },
+        reg.conversa.map(function (m) { return h("li", null, [h("strong", { text: (m.de === "admin" ? "Administrador" : "Participante") + ", " + new Date(m.quando).toLocaleTimeString("pt-BR") + ": ", style: "font:600 16px/1.4 var(--titulo)" }), m.texto]); }))]));
+      ProctoriaPainel.montar(caixaPainel, reg, [], { nomeBase: "proctoria_" + reg.sessao,
+        buscarGravacao: function (tipo, g) { return fetch("/api/admin/sessoes/" + id + "/gravacao/" + tipo + "/" + g.segmento, { credentials: "same-origin" }).then(function (r) { if (!r.ok) throw new Error(); return r.blob(); }); },
+        aoSalvarRevisao: salvar,
+        aoGerarRelatorio: function () { return comImagensEmbutidas(reg).then(function (c) { var x = extraRelatorio(); x.registro = c; return x; }); } });
+    }).catch(function (e) { raiz.textContent = ""; raiz.appendChild(h("p", { class: "alerta", text: e.message })); });
+  }
+
+  /* ----------------------------- configurações --------------------- */
+  function telaConfig() {
+    menu("config"); limparTemporizadores();
+    api("GET", "/api/admin/config").then(function (c) {
+      var retorno = h("input", { type: "text", value: c.pioniraWebhook, placeholder: "https://" }), dias = h("input", { type: "number", min: "0", max: "3650", value: c.retencaoDias }), aviso = status("");
+      var chave = h("code", { class: "chave", text: c.chaveIntegracao }), bc = h("button", { class: "botao sec menor", type: "button", text: "Copiar a chave", onclick: function () { copiar(chave.textContent, bc); } });
+      var salvar = function (extra) { return api("PUT", "/api/admin/config", Object.assign({ pioniraWebhook: retorno.value, retencaoDias: Number(dias.value) }, extra || {})).then(function (n) { chave.textContent = n.chaveIntegracao; aviso.className = "nota"; aviso.textContent = "Configurações salvas."; }, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); };
+      var bNova = h("button", { class: "botao sec menor", type: "button", text: "Gerar nova chave", onclick: function () { if (bNova.getAttribute("data-c")) { bNova.removeAttribute("data-c"); bNova.textContent = "Gerar nova chave"; salvar({ novaChaveIntegracao: true }); } else { bNova.setAttribute("data-c", "1"); bNova.textContent = "Confirmar: a chave atual deixa de valer"; } } });
+      raiz.textContent = "";
+      raiz.appendChild(h("div", { class: "topo" }, h("h1", { text: "Configurações" })));
+      if (!c.armazenamento) raiz.appendChild(h("p", { class: "alerta", text: "O armazenamento de arquivos não está ligado ao servidor. Evidências e gravações não serão guardadas." }));
+      raiz.appendChild(h("div", { class: "grupo", style: "border-top:0;padding-top:0;margin-top:0" }, [h("h2", { text: "Integração com a Pionira" }),
+        h("p", { text: "A Pionira usa a chave abaixo para criar o endereço de prova de cada aluno e para consultar os resultados liberados. O endereço de retorno recebe o resultado no instante da liberação." }),
+        h("div", null, [h("p", { class: "nota", style: "margin:0 0 6px", text: "Chave de integração" }), h("div", { class: "acoes" }, [chave, bc, bNova])]),
+        campo("Endereço de retorno da Pionira para os resultados (opcional)", retorno)]));
+      raiz.appendChild(h("div", { class: "grupo" }, [h("h2", { text: "Retenção dos dados" }), campo("Dias de guarda depois do encerramento da sessão (0 para não excluir automaticamente)", dias),
+        h("p", { class: "nota", text: "Vencido o prazo, o servidor exclui a sessão, as evidências e as gravações. A exclusão manual fica disponível na auditoria de cada sessão." })]));
+      raiz.appendChild(h("div", { class: "acoes", style: "margin-top:22px" }, [h("button", { class: "botao", type: "button", text: "Salvar as configurações", onclick: function () { salvar(); } })]));
+      raiz.appendChild(h("div", { style: "margin-top:12px" }, aviso));
+      raiz.appendChild(h("p", { class: "nota", style: "margin-top:28px", text: "Proctoria " + c.versao + "." }));
+    }).catch(function () {});
+  }
+
+  /* ----------------------------- navegação ------------------------- */
+  function ir(vista) { limparTemporizadores(); ({ provas: telaProvas, vivo: telaVivo, sessoes: telaSessoes, config: telaConfig }[vista] || telaProvas)(); }
+  Array.prototype.forEach.call(document.querySelectorAll("#menu [data-vista]"), function (b) { b.addEventListener("click", function () { ir(b.getAttribute("data-vista")); }); });
+  document.getElementById("sair").addEventListener("click", function () { api("POST", "/api/admin/sair").then(function () { telaEntrada(); }, function () { telaEntrada(); }); });
+  api("GET", "/api/admin/eu").then(function () { ir("provas"); }, function () {});
+})();
+</script>
+</body>
+</html>

@@ -1,8 +1,8 @@
-/*! Proctoria 0.3.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.4.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.3.0";
+  var VERSAO = "0.4.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",
@@ -14,6 +14,13 @@
     exigirTelaInteiraCompartilhada: true,
     exigirMonitorUnico: true,
     exigirJanelaMaximizada: true, // fora da tela cheia, a janela ocupa toda a área útil da tela
+    recusarCameraVirtual: true,   // programas que simulam câmera com vídeo gravado
+    identidade: true,             // fotos do rosto e do documento antes da prova
+    provaDeVida: "registrar",     // "obrigatoria", "registrar" (permite prosseguir depois de 45 s, com registro) ou "nao"
+    varreduraAmbiente: false,     // fotos do ambiente com a câmera, antes da prova
+    semPausasSeg: 0,              // maior que zero: rosto fora da imagem por esse tempo invalida a prova
+    semPiscadasSeg: 60,           // sinal para revisão: nenhuma piscada nesse intervalo (imagem estática)
+    trechoGravacaoMs: 4000,
     limiteSuspensoes: 3,          // na suspensão deste número a prova fica bloqueada até a liberação do administrador; 0 = sem bloqueio
     liberacaoHash: null,          // SHA-256 do código de liberação (Proctoria.resumoSHA256); nulo = liberação apenas por sessao.liberar()
     /* Cada sinal: advertência depois de avisoSeg contínuos; suspensão se persistir por mais suspensaoSeg;
@@ -56,8 +63,23 @@
     rosto_ausente: "Rosto mantido fora da imagem",
     mais_de_um_rosto: "Mais de um rosto mantido na imagem",
     voz: "Som de voz mantido no ambiente",
-    reincidencia: "Reincidência de advertências"
+    reincidencia: "Reincidência de advertências",
+    queda: "Sessão interrompida e retomada",
+    administrador: "Suspensão determinada pelo administrador"
   };
+  var AMBIENTE = [
+    ["À frente do participante", "Aponte a câmera para o espaço à frente da mesa."],
+    ["À esquerda da mesa", "Aponte a câmera para o lado esquerdo da mesa."],
+    ["À direita da mesa", "Aponte a câmera para o lado direito da mesa."],
+    ["Superfície da mesa", "Aponte a câmera para a superfície da mesa e o teclado."]
+  ];
+  var VIDA = {
+    piscar: "Pisque os olhos duas vezes.",
+    voltar: "Volte o rosto para um dos lados e retorne ao centro."
+  };
+  function cameraVirtual(rotulo) {
+    return /\bobs\b|virtual|manycam|snap ?camera|xsplit|droidcam|iriun|epoccam|\bcamo\b|mmhmm|\bndi\b|vcam|e2esoft|splitcam|camtwist|chromacam|youcam|altercam/i.test(rotulo || "");
+  }
 
   /* Advertências exibidas ao participante: título e orientação. */
   var MENSAGENS = {
@@ -281,6 +303,7 @@
     ".pct-adv strong{font:600 20px/1.3 Poppins,'Segoe UI',system-ui,sans-serif}",
     ".pct-adv small{display:block;font:500 16px/1.35 Poppins,'Segoe UI',system-ui,sans-serif;color:#e9dcc6;margin-top:6px}",
     ".pct-adv.pct-fim{border-left-color:#8d7f6c}.pct-adv.pct-fim b{color:#b7a892}",
+    ".pct-seletor{font:500 16px/1.3 Poppins,'Segoe UI',system-ui,sans-serif;color:#1B1512;background:#FAF5EC;border:0;border-radius:5px;padding:9px 10px;margin-top:12px;width:100%}",
     ".pct-rotulo{display:block;font:500 16px/1.3 Poppins,'Segoe UI',system-ui,sans-serif;margin:18px 0 6px}",
     ".pct-campo{font:500 22px/1.2 Poppins,'Segoe UI',system-ui,sans-serif;letter-spacing:.12em;color:#1B1512;background:#FAF5EC;border:0;border-radius:6px;padding:13px 14px;width:min(320px,100%)}",
     ".pct-campo:focus-visible{outline:3px solid #E5662C;outline-offset:3px}",
@@ -289,6 +312,7 @@
     ".pct-sinais dt{color:#C99A57}.pct-sinais dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}",
     ".pct-mira{position:fixed;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:rgba(229,102,44,.35);border:2px solid #E5662C;z-index:2147482500;pointer-events:none;transition:left .12s linear,top .12s linear}",
     "html.pct-em-prova .pct-area,html.pct-em-prova .pct-area *{-webkit-user-select:none;user-select:none;-webkit-user-drag:none}",
+    "html.pct-em-prova .pct-area textarea,html.pct-em-prova .pct-area input[type=text]{-webkit-user-select:text;user-select:text}",
     "@media print{html.pct-em-prova body{display:none!important}}",
     "@media (prefers-reduced-motion:reduce){.pct-medidor i,.pct-mira{transition:none}}"
   ].join("\n");
@@ -343,8 +367,19 @@
     this._bloqueiosRecentes = {};
     this._tecladoRetido = false;
     this._canvas = document.createElement("canvas");
+    this._piscadas = 0; this._olhoFechado = false; this._ultimaPiscada = null;
     injetarEstilos();
-    this._evento("sistema", "sessao_criada", "Sessão criada", null, {
+    var ret = cfg.retomada || null;
+    this._retomada = ret;
+    if (ret) {   // sessão reaberta depois de queda: a contagem e o relógio continuam de onde pararam
+      this._criadaEm = ret.criadaEm || this._criadaEm;
+      this._t0 = performance.now() - Math.max(0, Date.now() - Date.parse(this._criadaEm));
+      this._seq = ret.seq || 0;
+      this._ocorrencias = ret.suspensoes || 0; this._ciclo = ret.ciclo || 0;
+      this._nAdvertencias = ret.advertencias || 0; this._nBloqueios = ret.bloqueios || 0; this._nLiberacoes = ret.liberacoes || 0;
+      this._tempoSuspensoMs = ret.tempoSuspensoMs || 0;
+    }
+    this._evento("sistema", ret ? "sessao_reaberta" : "sessao_criada", ret ? "Sessão reaberta depois de interrupção" : "Sessão criada", null, {
       dados: { versao: VERSAO, navegador: navigator.userAgent }
     });
   }
@@ -417,18 +452,22 @@
   };
 
   Sessao.prototype._montarVerificacao = function () {
-    var eu = this;
+    var eu = this, r = this.regras;
     this._itens = {};
     var definicoes = [
       ["navegador", "Navegador compatível"],
       ["monitor", "Um único monitor conectado"],
       ["janela", "Janela da prova maximizada"],
-      ["camera", "Câmera ativa"],
+      ["camera", "Câmera física ativa"],
       ["rosto", "Um rosto identificado na imagem"],
-      ["microfone", "Microfone ativo e captando voz"],
-      ["tela", "Tela inteira compartilhada"],
-      ["ambiente", "Área de trabalho declarada e registrada"]
+      ["microfone", "Microfone ativo e captando voz"]
     ];
+    this._passos = ["midia"];
+    if (r.identidade) { definicoes.push(["identidade", "Identidade registrada: rosto e documento"]); this._passos.push("foto_rosto", "foto_documento"); }
+    if (r.provaDeVida !== "nao") { definicoes.push(["vida", "Prova de vida"]); this._passos.push("vida"); }
+    if (r.varreduraAmbiente) { definicoes.push(["varredura", "Ambiente registrado pela câmera"]); this._passos.push("varredura"); }
+    definicoes.push(["tela", "Tela inteira compartilhada"], ["ambiente", "Área de trabalho declarada e registrada"]);
+    this._passos.push("tela", "ambiente", "calibrar");
     var lista = el("ol", { class: "pct-lista" });
     definicoes.forEach(function (d) {
       var li = el("li", { "data-estado": "pendente" }, [
@@ -444,11 +483,21 @@
     this._camVideo.muted = true; this._camVideo.playsInline = true;
     this._legendaVideo = el("div", { class: "pct-legenda", text: "A imagem da câmera aparece aqui depois da autorização." });
     this._barraVoz = el("i");
+    this._seletor = el("select", { class: "pct-seletor", "aria-label": "Câmera utilizada" });
+    this._seletor.hidden = true;
+    this._seletor.addEventListener("change", function () {
+      eu._cameraEscolhida = eu._seletor.value;
+      if (eu._camStream) { eu._camStream.getTracks().forEach(function (t) { t.stop(); }); eu._camStream = null; }
+      eu._rostoOk = false; eu._rostoDesde = null; eu._ocupado = true;
+      var fim = function () { eu._ocupado = false; eu._atualizarVerificacao(); };
+      eu._abrirMidia().then(function (ok) { if (ok && eu._etapa === "midia") eu._avancar(); }).then(fim, fim);
+    });
     this._botao = el("button", { class: "pct-botao", type: "button", text: "Ativar câmera e microfone" });
-    this._aviso = el("p", { class: "pct-aviso" });
+    this._aviso = el("p", { class: "pct-aviso", "aria-live": "polite" });
     var cancelar = el("button", { class: "pct-botao pct-sec", type: "button", text: "Cancelar" });
     cancelar.addEventListener("click", function () { eu._cancelarPreparo(); });
     this._etapa = "midia";
+    this._fotosAmbiente = 0;
     this._botao.addEventListener("click", function () { eu._acaoVerificacao(); });
 
     this._camada = el("div", { class: "pct-camada", role: "dialog", "aria-modal": "true", "aria-label": "Verificação do ambiente" }, [
@@ -462,7 +511,8 @@
           el("div", null, [
             el("div", { class: "pct-video" }, [this._previa]),
             this._legendaVideo,
-            el("div", { class: "pct-medidor", "aria-hidden": "true" }, [this._barraVoz])
+            el("div", { class: "pct-medidor", "aria-hidden": "true" }, [this._barraVoz]),
+            this._seletor
           ]),
           el("div", null, [lista, el("div", { class: "pct-acoes" }, [this._botao, cancelar]), this._aviso])
         ])
@@ -484,6 +534,43 @@
     this._atualizarVerificacao();
   };
 
+  Sessao.prototype._avancar = function () {
+    var i = this._passos.indexOf(this._etapa);
+    if (i >= 0 && i < this._passos.length - 1) this._etapa = this._passos[i + 1];
+  };
+
+  Sessao.prototype._listarCameras = function () {
+    var eu = this;
+    navigator.mediaDevices.enumerateDevices().then(function (lista) {
+      var cameras = lista.filter(function (d) { return d.kind === "videoinput" && d.label; });
+      if (!eu._seletor) return;
+      eu._seletor.textContent = "";
+      cameras.forEach(function (d) {
+        var o = el("option", { value: d.deviceId, text: d.label });
+        if (eu._camStream && (eu._camStream.getVideoTracks()[0] || {}).label === d.label) o.selected = true;
+        eu._seletor.appendChild(o);
+      });
+      eu._seletor.hidden = cameras.length < 2;
+    }).catch(function () {});
+  };
+
+  Sessao.prototype._restricoesMidia = function () {
+    var video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15 } };
+    if (this._cameraEscolhida) video.deviceId = { exact: this._cameraEscolhida }; else video.facingMode = "user";
+    return { video: video, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } };
+  };
+
+  Sessao.prototype._instalarMidia = function (stream) {
+    if (this._camStream) this._camStream.getTracks().forEach(function (t) { t.stop(); });
+    clearInterval(this._audioId);
+    if (this._audioCtx) { try { this._audioCtx.close(); } catch (e) {} this._audioCtx = null; }
+    this._camStream = stream;
+    this._camVideo.srcObject = stream; this._camVideo.play().catch(function () {});
+    if (this._previa) { this._previa.srcObject = stream; this._previa.play().catch(function () {}); }
+    if (this._sinaisVideo) this._sinaisVideo.srcObject = stream;
+    this._vigiarTrilhas(); this._iniciarAudio();
+  };
+
   Sessao.prototype._monitorUnico = function () {
     return !(this.regras.exigirMonitorUnico && global.screen.isExtended === true);
   };
@@ -496,10 +583,10 @@
 
   Sessao.prototype._atualizarVerificacao = function () {
     if (!this._itens) return;
-    var s = this._sinais, agora = performance.now(), b = this._botao;
+    var s = this._sinais, agora = performance.now(), b = this._botao, r = this.regras, ocupado = !!this._ocupado;
     this._item("monitor", this._monitorUnico() ? "conforme" : "nao",
       this._monitorUnico() ? "" : "Desconecte o monitor adicional e mantenha apenas a tela principal.");
-    var janela = !this.regras.exigirJanelaMaximizada || janelaMaximizada();
+    var janela = !r.exigirJanelaMaximizada || janelaMaximizada();
     if (!janela && this._janelaOk) {
       this._evento("sistema", "janela_verificacao", "Janela da prova redimensionada durante a verificação",
         "Janela com " + global.outerWidth + " x " + global.outerHeight + " em tela de " + global.screen.availWidth + " x " + global.screen.availHeight + ".");
@@ -509,7 +596,7 @@
     this._item("janela", janela ? "conforme" : "nao", janela ? "" : "Maximize a janela da prova: ela precisa ocupar a tela inteira.");
 
     if (this._camStream) {
-      this._item("camera", this._trilhaViva(this._camStream, "video") ? "conforme" : "nao");
+      this._item("camera", this._trilhaViva(this._camStream, "video") ? "conforme" : "nao", "");
       if (!this._detector) {
         this._item("rosto", this._erroDetector ? "nao" : "verificando",
           this._erroDetector ? "O detector facial não foi carregado. Verifique a conexão com a internet e recarregue a página." : "Carregando o detector facial.");
@@ -538,41 +625,107 @@
         this._etapa = "tela"; this._ambienteOk = false; this._item("ambiente", "pendente", "");
       }
     }
-    if (this._etapa === "midia") { b.textContent = "Ativar câmera e microfone"; b.disabled = !this._compativel || !!this._ocupado; }
-    else if (this._etapa === "tela") { b.textContent = "Compartilhar a tela inteira"; b.disabled = !!this._ocupado; this._aviso.textContent = ""; }
-    else if (this._etapa === "ambiente") {
-      b.textContent = "Declarar e registrar a área de trabalho"; b.disabled = !!this._ocupado;
-      this._aviso.textContent = "Feche as demais abas, os outros navegadores e os aplicativos alheios à prova. Ao confirmar, a imagem da tela neste instante fica registrada para a auditoria.";
+    var e = this._etapa, vida = this._vida, texto = "";
+    if (e === "midia") { b.textContent = "Ativar câmera e microfone"; b.disabled = !this._compativel || ocupado; texto = this._aviso.textContent; }
+    else if (e === "foto_rosto") {
+      b.textContent = "Registrar a foto do rosto"; b.disabled = ocupado || !this._rostoOk;
+      this._item("identidade", "verificando", "");
+      texto = "Olhe para a câmera, com o rosto inteiro visível e bem iluminado, e confirme.";
     }
-    else if (this._etapa === "calibrar") {
+    else if (e === "foto_documento") {
+      b.textContent = "Registrar a foto do documento"; b.disabled = ocupado;
+      texto = "Aproxime da câmera um documento oficial com foto, de modo que os dados fiquem legíveis, e confirme. A imagem registrada não é espelhada.";
+    }
+    else if (e === "vida") {
+      if (!vida) {
+        b.textContent = "Iniciar a prova de vida"; b.disabled = ocupado || !this._rostoOk;
+        texto = "Dois movimentos simples confirmam a presença do participante diante da câmera.";
+      } else if (vida.expirada) {
+        b.textContent = r.provaDeVida === "obrigatoria" ? "Repetir a prova de vida" : "Prosseguir sem a prova de vida"; b.disabled = ocupado;
+        this._item("vida", "nao", "Os movimentos não foram identificados no tempo previsto.");
+        texto = r.provaDeVida === "obrigatoria" ? "Ilumine o rosto de frente e repita." : "Ao prosseguir, a ausência da prova de vida fica registrada para a auditoria.";
+      } else {
+        b.textContent = "Prova de vida em andamento"; b.disabled = true;
+        this._item("vida", "verificando", VIDA[vida.ordem[vida.i]]);
+        texto = "Movimento " + (vida.i + 1) + " de " + vida.ordem.length + ": " + VIDA[vida.ordem[vida.i]];
+      }
+    }
+    else if (e === "varredura") {
+      var a = AMBIENTE[this._fotosAmbiente] || AMBIENTE[0];
+      b.textContent = "Registrar: " + a[0].toLowerCase(); b.disabled = ocupado;
+      this._item("varredura", "verificando", "Imagem " + (this._fotosAmbiente + 1) + " de " + AMBIENTE.length + ".");
+      texto = a[1] + " Em computador portátil, gire o equipamento.";
+    }
+    else if (e === "tela") { b.textContent = "Compartilhar a tela inteira"; b.disabled = ocupado; }
+    else if (e === "ambiente") {
+      b.textContent = "Declarar e registrar a área de trabalho"; b.disabled = ocupado;
+      texto = "Feche as demais abas, os outros navegadores e os aplicativos alheios à prova. Ao confirmar, a imagem da tela neste instante fica registrada para a auditoria.";
+    }
+    else if (e === "calibrar") {
       b.textContent = "Entrar em tela cheia e calibrar o olhar";
       var tudo = this._monitorUnico() && janela && this._rostoOk && this._micOk && this._telaOk && this._ambienteOk && this._trilhaViva(this._camStream, "video");
-      b.disabled = !tudo || !!this._ocupado;
-      this._aviso.textContent = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "Os itens em verificação precisam estar conformes para prosseguir.";
+      b.disabled = !tudo || ocupado;
+      texto = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "Os itens em verificação precisam estar conformes para prosseguir.";
     }
+    if (e !== "midia") this._aviso.textContent = texto;
+  };
+
+  Sessao.prototype._fotografar = function (tipo, titulo, detalhe, video, largura) {
+    var imagem = this._quadro(video || this._camVideo, largura || 1280, 0.8);
+    if (!imagem) return false;
+    var ev = this._evento("sistema", tipo, titulo, detalhe || null);
+    ev.evidencias = video === this._telaVideo ? { tela: imagem } : { camera: imagem };
+    return true;
   };
 
   Sessao.prototype._acaoVerificacao = function () {
-    var eu = this;
+    var eu = this, r = this.regras, e = this._etapa;
     if (this._ocupado) return;
     this._ocupado = true;
     var fim = function () { eu._ocupado = false; eu._atualizarVerificacao(); };
-    if (this._etapa === "midia") this._abrirMidia().then(function (ok) { if (ok) eu._etapa = "tela"; }).then(fim, fim);
-    else if (this._etapa === "tela") this._abrirTela().then(function (ok) { if (ok) eu._etapa = "ambiente"; }).then(fim, fim);
-    else if (this._etapa === "ambiente") {
-      var imagem = this._quadro(this._telaVideo, 1600, 0.6);
-      if (imagem) {
-        var ev = this._evento("sistema", "ambiente", "Área de trabalho registrada antes da prova",
-          "O participante declarou ter fechado as demais abas, os outros navegadores e os aplicativos alheios à prova.");
-        ev.evidencias = { tela: imagem };
-        this._ambienteOk = true; this._item("ambiente", "conforme", ""); this._etapa = "calibrar";
+    if (e === "midia") this._abrirMidia().then(function (ok) { if (ok) eu._avancar(); }).then(fim, fim);
+    else if (e === "foto_rosto") {
+      if (this._fotografar("identidade_rosto", "Foto do rosto registrada")) this._avancar();
+      fim();
+    }
+    else if (e === "foto_documento") {
+      if (this._fotografar("identidade_documento", "Foto do documento registrada")) { this._item("identidade", "conforme", ""); this._avancar(); }
+      fim();
+    }
+    else if (e === "vida") {
+      var v = this._vida;
+      if (v && v.expirada && r.provaDeVida !== "obrigatoria") {
+        var ev = this._evento("revisao", "prova_de_vida_ausente", "Prova de vida não concluída",
+          "O participante prosseguiu sem que os movimentos fossem identificados em 45 segundos.");
+        ev.evidencias = this._evidencias();
+        this._item("vida", "nao", "Não concluída. Registrada para a auditoria.");
+        this._avancar();
+      } else {
+        this._vida = { ordem: Math.random() < 0.5 ? ["piscar", "voltar"] : ["voltar", "piscar"], i: 0, inicio: performance.now(),
+          piscadasBase: this._piscadas, yawBase: null, virou: false, expirada: false, ok: false };
       }
       fim();
     }
-    else if (this._etapa === "calibrar") {
+    else if (e === "varredura") {
+      var a = AMBIENTE[this._fotosAmbiente];
+      if (this._fotografar("ambiente_foto", "Ambiente registrado: " + a[0].toLowerCase())) {
+        this._fotosAmbiente++;
+        if (this._fotosAmbiente >= AMBIENTE.length) { this._item("varredura", "conforme", ""); this._avancar(); }
+      }
+      fim();
+    }
+    else if (e === "tela") this._abrirTela().then(function (ok) { if (ok) eu._avancar(); }).then(fim, fim);
+    else if (e === "ambiente") {
+      if (this._fotografar("ambiente", "Área de trabalho registrada antes da prova",
+        "O participante declarou ter fechado as demais abas, os outros navegadores e os aplicativos alheios à prova.", this._telaVideo, 1600)) {
+        this._ambienteOk = true; this._item("ambiente", "conforme", ""); this._avancar();
+      }
+      fim();
+    }
+    else if (e === "calibrar") {
       this._entrarTelaCheia().then(function () {
         clearInterval(eu._tickVerif); eu._itens = null;
-        eu._camada.remove(); eu._camada = null;
+        eu._camada.remove(); eu._camada = null; eu._previa = null; eu._seletor = null;
         eu._ocupado = false;
         eu._montarCalibragem();
       }, function () {
@@ -580,35 +733,69 @@
         fim();
       });
     }
+    else fim();
+  };
+
+  /* Prova de vida: dois movimentos em ordem sorteada. Uma fotografia diante da câmera não os reproduz. */
+  Sessao.prototype._acompanharVida = function (s, agora) {
+    var v = this._vida;
+    if (!v || v.ok || v.expirada) return;
+    if (agora - v.inicio > 45000) {
+      v.expirada = true;
+      this._evento("sistema", "prova_de_vida_expirada", "Prova de vida não identificada em 45 segundos");
+      return;
+    }
+    if (s.rostos !== 1) return;
+    var feito = false;
+    if (v.ordem[v.i] === "piscar") feito = this._piscadas - v.piscadasBase >= 2;
+    else {
+      if (v.yawBase === null) v.yawBase = s.yaw;
+      var desvio = Math.abs(s.yaw - v.yawBase);
+      if (!v.virou && desvio >= 18) v.virou = true;
+      else if (v.virou && desvio <= 8) feito = true;
+    }
+    if (!feito) return;
+    v.i++; v.piscadasBase = this._piscadas; v.yawBase = null; v.virou = false;
+    if (v.i >= v.ordem.length) {
+      v.ok = true; this._vidaOk = true;
+      var ev = this._evento("sistema", "prova_de_vida", "Prova de vida concluída", "Movimentos identificados: piscar duas vezes; voltar o rosto para um lado e retornar.");
+      ev.evidencias = this._evidencias();
+      if (this._itens) this._item("vida", "conforme", "");
+      if (this._etapa === "vida") this._avancar();
+    }
   };
 
   Sessao.prototype._abrirMidia = function () {
     var eu = this;
     this._item("camera", "verificando", "Autorize a câmera e o microfone na janela do navegador.");
-    return navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 }, facingMode: "user" },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    }).then(function (stream) {
-      eu._camStream = stream;
-      eu._camVideo.srcObject = stream;
-      eu._camVideo.play().catch(function () {});
-      eu._previa.srcObject = stream;
-      eu._previa.play().catch(function () {});
+    return navigator.mediaDevices.getUserMedia(this._restricoesMidia()).then(function (stream) {
+      var rotulo = (stream.getVideoTracks()[0] || {}).label || "";
+      if (eu.regras.recusarCameraVirtual && cameraVirtual(rotulo)) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        eu._listarCameras();
+        eu._item("camera", "nao", "Foi identificada uma câmera virtual (" + rotulo + "). Selecione a câmera física do computador na lista abaixo da imagem.");
+        eu._evento("sistema", "camera_virtual", "Câmera virtual recusada", rotulo);
+        return false;
+      }
+      eu._instalarMidia(stream);
+      eu._listarCameras();
       eu._item("camera", "conforme", "");
+      eu._aviso.textContent = "";
       eu._evento("sistema", "midia_ativa", "Câmera e microfone ativados", null, {
-        dados: { camera: (stream.getVideoTracks()[0] || {}).label, microfone: (stream.getAudioTracks()[0] || {}).label }
+        dados: { camera: rotulo, microfone: (stream.getAudioTracks()[0] || {}).label }
       });
-      eu._vigiarTrilhas();
-      eu._iniciarAudio();
-      eu._carregarDetector().then(function () { eu._iniciarLaco(); }, function (e) {
-        eu._erroDetector = true;
-        eu._evento("sistema", "detector_falhou", "Detector facial não carregado", String(e && e.message || e));
-      });
+      if (!eu._detector && !eu._carregandoDetector) {
+        eu._carregandoDetector = true;
+        eu._carregarDetector().then(function () { eu._iniciarLaco(); }, function (e) {
+          eu._erroDetector = true;
+          eu._evento("sistema", "detector_falhou", "Detector facial não carregado", String(e && e.message || e));
+        });
+      }
       return true;
     }, function (e) {
       var nome = e && e.name;
       var msg = nome === "NotAllowedError" ? "Permissão negada. Autorize a câmera e o microfone nas configurações do navegador e repita."
-        : nome === "NotFoundError" ? "Câmera ou microfone não encontrados neste computador."
+        : nome === "NotFoundError" || nome === "OverconstrainedError" ? "Câmera ou microfone não encontrados neste computador."
         : nome === "NotReadableError" ? "A câmera ou o microfone estão em uso por outro aplicativo."
         : "Não foi possível acessar a câmera e o microfone.";
       eu._item("camera", "nao", msg);
@@ -744,6 +931,14 @@
     var s = caracteristicas(res), agora = performance.now(), c = this._calib;
     this._sinais = s;
     if (this._coleta && s.rostos >= 1 && s.f && s.pisca < 0.5) this._coleta.push(s.f);
+    if (s.rostos >= 1 && s.pisca !== undefined) {
+      if (s.pisca > 0.5) this._olhoFechado = true;
+      else if (s.pisca < 0.3 && this._olhoFechado) {
+        this._olhoFechado = false; this._piscadas++; this._ultimaPiscada = agora;
+        if (this._semPiscadas) { this._semPiscadas.duracaoMs = Math.round(agora - this._semPiscadasInicio); this._semPiscadas = null; }
+      }
+    }
+    this._acompanharVida(s, agora);
     if (s.rostos >= 1) {
       s.dYaw = s.yaw - c.yaw0; s.dPitch = s.pitch - c.pitch0;
       s.cabecaFora = Math.abs(s.dYaw) > this.regras.cabecaYawGraus || Math.abs(s.dPitch) > this.regras.cabecaPitchGraus;
@@ -757,7 +952,23 @@
         s.olharFora = s.gx < -m || s.gx > 1 + m || s.gy < -m || s.gy > 1 + m;
       }
     }
-    if (this._fase !== "prova" || this._suspensao || !this._cond) return;
+    if (this._fase !== "prova") return;
+    var r = this.regras;
+    if (r.semPausasSeg > 0 && !this._invalidando) {   // sem pausas: vale também durante uma suspensão
+      if (s.rostos === 0) {
+        if (this._ausenteDesde === null || this._ausenteDesde === undefined) this._ausenteDesde = agora;
+        else if (agora - this._ausenteDesde >= r.semPausasSeg * 1000) { this._invalidar(agora - this._ausenteDesde); return; }
+      } else this._ausenteDesde = null;
+    }
+    if (this._suspensao || !this._cond) return;
+    if (r.semPiscadasSeg > 0 && s.rostos >= 1 && !this._semPiscadas) {
+      if (this._ultimaPiscada === null || this._ultimaPiscada < this._inicioProvaRelogio) this._ultimaPiscada = this._inicioProvaRelogio;
+      if (agora - this._ultimaPiscada > r.semPiscadasSeg * 1000) {
+        this._semPiscadas = this._evento("revisao", "sem_piscadas", "Nenhuma piscada identificada",
+          "Rosto presente sem piscadas por mais de " + r.semPiscadasSeg + " segundos, o que pode indicar imagem estática diante da câmera.", { evidencia: true });
+        this._semPiscadasInicio = this._ultimaPiscada;
+      }
+    }
     this._cond.ausente.atualizar(s.rostos === 0, agora, s);
     this._cond.varios.atualizar(s.rostos > 1, agora, s);
     this._cond.cabeca.atualizar(s.rostos >= 1 && !!s.cabecaFora, agora, s);
@@ -989,13 +1200,16 @@
     var eu = this, r = this.regras;
     if (this._fase !== "pronta") throw new Error("A sessão ainda não foi preparada.");
     this._fase = "prova";
-    this._inicioProvaT = this._agora();
+    var ret = this._retomada;
+    this._inicioProvaT = ret && ret.inicioProvaT !== undefined && ret.inicioProvaT !== null ? ret.inicioProvaT : this._agora();
+    this._inicioProvaRelogio = performance.now();
     document.documentElement.classList.add("pct-em-prova");
     if (this.area) this.area.classList.add("pct-area");
 
     var criar = function (tipo, titulo, detalhar) {
       var c = r.sinais[tipo];
-      return new Condicao(c.avisoSeg * 1000, c.suspensaoSeg * 1000, 700,
+      var semPausas = tipo === "rosto_ausente" && r.semPausasSeg > 0;   // nesse modo, a ausência invalida em vez de suspender
+      return new Condicao(c.avisoSeg * 1000, semPausas ? 0 : c.suspensaoSeg * 1000, 700,
         function (sinais, desde) {
           var ev = eu._evento("revisao", tipo, titulo, detalhar ? detalhar(sinais) : null, { evidencia: true });
           ev.detectadoT = ev.t;
@@ -1020,7 +1234,7 @@
       })
     };
 
-    this._evento("sistema", "prova_iniciada", "Prova iniciada", null, {
+    this._evento("sistema", ret ? "prova_retomada" : "prova_iniciada", ret ? "Prova retomada depois de interrupção" : "Prova iniciada", null, {
       dados: { calibragem: this._calib.modo, tecladoRetido: this._tecladoRetido, superficie: this._superficie }
     });
     if (r.gravarTela) this._iniciarGravacao("tela");
@@ -1039,6 +1253,11 @@
       }, r.capturaPeriodicaSeg * 1000));
     }
     try { navigator.clipboard.writeText("").catch(function () {}); } catch (e) {}
+    if (ret && ret.queda) {
+      if (ret.queda.excedeu && r.limiteSuspensoes > 0) this._ciclo = Math.max(this._ciclo, r.limiteSuspensoes - 1);   // interrupção longa: a retomada depende do administrador
+      this._suspender("queda", "Sessão sem sinal por " + segundos(ret.queda.duracaoMs || 0) + ". O tempo de prova seguiu em contagem.");
+      this._tempoSuspensoMs += ret.queda.duracaoMs || 0;
+    }
     this._conferirCondicoesIniciais();
   };
 
@@ -1212,7 +1431,8 @@
     ev.dados = ev.dados || {}; ev.dados.advertencia = this._nAdvertencias;
     var recentes = (this._avisos[tipo] || []).filter(function (t) { return agora - t < janela; });
     recentes.push(agora); this._avisos[tipo] = recentes;
-    this._mostrarAdvertencia(tipo, c.suspensaoSeg * 1000);
+    var invalida = tipo === "rosto_ausente" && this.regras.semPausasSeg > 0;
+    this._mostrarAdvertencia(tipo, invalida ? Math.max(0, this.regras.semPausasSeg - c.avisoSeg) * 1000 : c.suspensaoSeg * 1000, invalida);
     if (c.reincidencia > 0 && recentes.length >= c.reincidencia) {
       this._avisos[tipo] = [];
       var texto = recentes.length + " advertências por " + MENSAGENS[tipo][0].toLowerCase() + " em " + this.regras.reincidenciaJanelaMin + " minutos.";
@@ -1222,7 +1442,7 @@
     return false;
   };
 
-  Sessao.prototype._mostrarAdvertencia = function (tipo, prazoMs) {
+  Sessao.prototype._mostrarAdvertencia = function (tipo, prazoMs, invalida) {
     var eu = this, m = MENSAGENS[tipo];
     if (!this._advCaixa) {
       this._advCaixa = el("div", { class: "pct-advertencias", "aria-live": "assertive" });
@@ -1234,7 +1454,7 @@
     var caixa = el("div", { class: "pct-adv", role: "alert" }, [
       el("b", { text: "Advertência " + this._nAdvertencias }), el("strong", { text: m[0] + ". " }), document.createTextNode(m[1]), prazo
     ]);
-    this._advAtivas[tipo] = { el: caixa, prazo: prazo, limite: prazoMs > 0 ? performance.now() + prazoMs : null, fim: null };
+    this._advAtivas[tipo] = { el: caixa, prazo: prazo, limite: prazoMs > 0 ? performance.now() + prazoMs : null, fim: null, invalida: !!invalida };
     this._advCaixa.appendChild(caixa);
     this._atualizarAdvertencias();
   };
@@ -1246,7 +1466,8 @@
       if (a.fim !== null) { if (agora - a.fim > 2500) eu._removerAdvertencia(tipo); return; }
       if (a.limite === null) { a.prazo.textContent = ""; return; }
       var resta = Math.max(0, Math.ceil((a.limite - agora) / 1000));
-      a.prazo.textContent = "A prova é suspensa em " + resta + " s se a condição continuar.";
+      a.prazo.textContent = a.invalida ? "A prova é invalidada em " + resta + " s se o rosto não voltar à imagem."
+        : "A prova é suspensa em " + resta + " s se a condição continuar.";
     });
   };
 
@@ -1311,6 +1532,35 @@
     return lista;
   };
 
+  /* Sem pausas: o rosto ficou fora da imagem além do tempo permitido. A prova se encerra como invalidada;
+     as respostas são preservadas e a decisão final cabe ao administrador, na auditoria. */
+  Sessao.prototype._invalidar = function (ms) {
+    var eu = this;
+    this._invalidando = true;
+    this._evento("suspensao", "invalidacao", "Prova invalidada por ausência da câmera",
+      "Rosto fora da imagem por " + segundos(ms) + ", com a regra sem pausas ativa.", { evidencia: true });
+    this.encerrar("invalidada").then(function (res) { if (eu.cfg.aoEncerrar) eu.cfg.aoEncerrar(res); });
+  };
+
+  /* Resumo do estado para o envio periódico ao servidor. */
+  Sessao.prototype.estado = function () {
+    var s = this._suspensao, v = this._voz;
+    return {
+      fase: this._fase, suspensa: !!s, bloqueada: !!(s && s.bloqueada), motivos: s ? Object.keys(s.motivos) : [],
+      suspensoes: this._ocorrencias, ciclo: this._ciclo, advertencias: this._nAdvertencias,
+      bloqueios: this._nBloqueios, liberacoes: this._nLiberacoes, seq: this._seq,
+      tempoSuspensoMs: Math.round(this._tempoSuspensoMs + (s ? performance.now() - s.inicio : 0)),
+      inicioProvaT: this._inicioProvaT === undefined ? null : this._inicioProvaT,
+      rostos: this._sinais.rostos || 0, voz: !!(v && v.ativa), calibragem: this._calib.modo
+    };
+  };
+  Sessao.prototype.quadros = function () {
+    return { camera: this._quadro(this._camVideo, 240, 0.5), tela: this._quadro(this._telaVideo, 640, 0.4) };
+  };
+  Sessao.prototype.eventos = function () { return this._eventos; };
+  Sessao.prototype.telemetria = function () { return this._telemetria; };
+  Sessao.prototype.suspender = function (texto) { this._suspender("administrador", texto || "Suspensão determinada pelo administrador."); };
+
   /* Bloqueio: a retomada depende do administrador (código na tela ou sessao.liberar() chamado pela página). */
   Sessao.prototype._montarBloqueio = function () {
     var eu = this, confirmando = false;
@@ -1343,16 +1593,16 @@
           el("p", { text: "O limite de suspensões foi atingido. A retomada depende da liberação do administrador da prova. O tempo de prova segue em contagem." }),
           el("p", { class: "pct-aviso", text: "Ocorrência registrada:" }),
           this._susMotivos,
-          el("label", { class: "pct-rotulo", for: "pct-codigo", text: "Código de liberação do administrador" }),
-          campo,
-          el("div", { class: "pct-acoes" }, [liberar, entregar]),
+          this.regras.liberacaoHash ? el("label", { class: "pct-rotulo", for: "pct-codigo", text: "Código de liberação do administrador" }) : null,
+          this.regras.liberacaoHash ? campo : el("p", { class: "pct-aviso", text: "Nesta prova, a liberação é feita a distância. Aguarde o administrador ou utilize o canal de mensagens desta tela para falar com ele." }),
+          el("div", { class: "pct-acoes" }, this.regras.liberacaoHash ? [liberar, entregar] : [entregar]),
           aviso
         ])
       ])
     ]);
     document.body.appendChild(this._camada);
     this._atualizarSuspensao();
-    try { campo.focus(); } catch (e) {}
+    if (this.regras.liberacaoHash) { try { campo.focus(); } catch (e) {} }
   };
 
   Sessao.prototype.liberar = function (origem) {
@@ -1425,18 +1675,9 @@
     this._ocupado = true;
     var fim = function () { eu._ocupado = false; eu._atualizarSuspensao(); };
     if (this._susProxima === "midia") {
-      navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 }, facingMode: "user" },
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-      }).then(function (stream) {
+      navigator.mediaDevices.getUserMedia(this._restricoesMidia()).then(function (stream) {
         eu._pararGravacao("camera");
-        if (eu._camStream) eu._camStream.getTracks().forEach(function (t) { t.stop(); });
-        clearInterval(eu._audioId);
-        if (eu._audioCtx) eu._audioCtx.close().catch(function () {});
-        eu._camStream = stream; eu._camVideo.srcObject = stream;
-        eu._camVideo.play().catch(function () {});
-        if (eu._sinaisVideo) eu._sinaisVideo.srcObject = stream;
-        eu._vigiarTrilhas(); eu._iniciarAudio();
+        eu._instalarMidia(stream);
         if (eu.regras.gravarCamera) eu._iniciarGravacao("camera");
         if (eu.regras.gravarTela && eu._trilhaViva(eu._telaStream, "video", true)) { eu._pararGravacao("tela"); eu._iniciarGravacao("tela"); }
         eu._evento("sistema", "midia_reativada", "Câmera e microfone reativados");
@@ -1487,10 +1728,11 @@
       rec.ondataavailable = function (e) {
         if (!e.data || !e.data.size) return;
         g.partes.push(e.data); g.bytes += e.data.size;
-        if (eu.cfg.aoTrecho) { try { eu.cfg.aoTrecho(tipo, e.data, { segmento: eu._gravacoes[tipo].indexOf(g) + 1, inicioT: g.inicioT }); } catch (x) {} }
+        g.n = (g.n || 0) + 1;
+        if (eu.cfg.aoTrecho) { try { eu.cfg.aoTrecho(tipo, e.data, { segmento: (eu.cfg.segmentoInicial || 0) + eu._gravacoes[tipo].indexOf(g) + 1, n: g.n, inicioT: g.inicioT, mime: g.mime }); } catch (x) {} }
       };
       g.parada = new Promise(function (ok) { rec.onstop = function () { g.fimT = eu._agora(); ok(); }; });
-      rec.start(4000);
+      rec.start(Math.max(1000, this.regras.trechoGravacaoMs));
       this._gravacoes[tipo].push(g);
     } catch (e) {
       this._evento("sistema", "gravacao_falhou", "Gravação não iniciada", tipo + ": " + String(e && e.message || e));
@@ -1582,7 +1824,9 @@
       this._tempoSuspensoMs += ms; this._suspensao = null;
     }
     this._evento("sistema", "sessao_encerrada", "Sessão encerrada",
-      { entregue: "Prova entregue pelo participante.", encerrada_durante_bloqueio: "Encerramento pelo participante durante o bloqueio.", interrompida: "Sessão interrompida." }[situacao] || situacao);
+      { entregue: "Prova entregue pelo participante.", encerrada_durante_bloqueio: "Encerramento pelo participante durante o bloqueio.",
+        invalidada: "Prova invalidada por ausência da câmera.", encerrada_pelo_administrador: "Encerramento determinado pelo administrador.",
+        tempo_esgotado: "Tempo de prova esgotado.", interrompida: "Sessão interrompida." }[situacao] || situacao);
     var fimT = this._agora();
     var faseAnterior = this._fase;
     this._fase = "encerrando";
@@ -1615,7 +1859,9 @@
           tela: { largura: global.screen.width, altura: global.screen.height, densidade: global.devicePixelRatio },
           superficieCompartilhada: eu._superficie || null, tecladoRetido: eu._tecladoRetido,
           detector: eu._delegado || null,
-          calibragem: { modo: eu._calib.modo, desvio: eu._calib.desvio, tentativas: eu._calib.tentativas }
+          calibragem: { modo: eu._calib.modo, desvio: eu._calib.desvio, tentativas: eu._calib.tentativas },
+          provaDeVida: eu.regras.provaDeVida === "nao" ? "dispensada" : (eu._vidaOk ? "concluida" : "nao_concluida"),
+          camera: eu._camStream && eu._camStream.getVideoTracks()[0] ? eu._camStream.getVideoTracks()[0].label : null
         },
         resumo: {
           duracaoProvaMs: eu._inicioProvaT === undefined ? 0 : fimT - eu._inicioProvaT,
@@ -1638,6 +1884,6 @@
     regrasPadrao: REGRAS_PADRAO,
     criar: function (cfg) { return new Sessao(cfg); },
     resumoSHA256: resumoSHA256,
-    _interno: { ajustar: ajustar, prever: prever, desvioCalibragem: desvioCalibragem, Condicao: Condicao, caracteristicas: caracteristicas }
+    _interno: { ajustar: ajustar, prever: prever, desvioCalibragem: desvioCalibragem, Condicao: Condicao, caracteristicas: caracteristicas, cameraVirtual: cameraVirtual }
   };
 })(typeof window !== "undefined" ? window : globalThis);
