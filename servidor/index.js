@@ -1,9 +1,9 @@
-/*! Proctoria 0.6.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
+/*! Proctoria 0.7.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
 import { DurableObject } from "cloudflare:workers";
 import { configuracao as configSEB, plist as plistSEB, chaveDeConfiguracao, hashDaPagina } from "./seb.mjs";
 import { ciclo as cicloDe, diaDe, usoNovo, estimar } from "./custos.mjs";
 
-const VERSAO = "0.6.0";
+const VERSAO = "0.7.0";
 const DIA = 86400000;
 const CABECALHO_JSON = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const json = (dados, status = 200, extra) => new Response(JSON.stringify(dados), { status, headers: { ...CABECALHO_JSON, ...(extra || {}) } });

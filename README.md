@@ -1,9 +1,9 @@
-# Proctoria v0.6
+# Proctoria v0.7
 
 Fiscalização de prova on-line: engine para navegador, servidor, página da prova e módulo de administração.
 
 - Demonstração sem servidor: https://ginoterentimjr.github.io/proctoria/
-- Versões anteriores da demonstração: `/v0.5/`, `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
+- Versões anteriores da demonstração: `/v0.6/`, `/v0.5/`, `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
 
 ## Componentes
 
@@ -29,6 +29,14 @@ Fiscalização de prova on-line: engine para navegador, servidor, página da pro
 - Acompanhamento ao vivo, mensagens entre administrador e participante, liberação de bloqueio, suspensão, encerramento e invalidação a distância.
 - Em cada sessão: download das gravações, do registro e do relatório formal.
 - Integração com a Pionira e prazo de retenção dos dados.
+
+## Organização do módulo de administração
+
+- Navegação fixa à esquerda: Provas, Acompanhamento, Sessões e auditoria, Configurações, com o consumo do ciclo sempre à vista.
+- Cada prova abre com três abas: Regras, Questões e Participantes. As regras ficam em painéis por assunto, com índice lateral.
+- O acompanhamento ao vivo traz as contagens da turma no topo e um cartão por sessão, com a cor da situação.
+- A auditoria reúne decisão e arquivos em um painel e separa registro, respostas e mensagens em abas.
+- As configurações se dividem em quatro abas: consumo e teto de gasto, avisos, integração com a Pionira e retenção dos dados.
 
 ## Opções por prova, no módulo de administração
 

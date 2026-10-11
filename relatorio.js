@@ -1,4 +1,4 @@
-/*! Proctoria 0.6.0 | relatório formal de ocorrências da sessão, pronto para impressão em PDF */
+/*! Proctoria 0.7.0 | relatório formal de ocorrências da sessão, pronto para impressão em PDF */
 (function (global) {
   "use strict";
 

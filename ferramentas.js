@@ -1,4 +1,4 @@
-/*! Proctoria 0.6.0 | rascunho e calculadora na tela da prova */
+/*! Proctoria 0.7.0 | rascunho e calculadora na tela da prova */
 (function (global) {
   "use strict";
 
