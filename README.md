@@ -1,9 +1,9 @@
-# Proctoria v0.4
+# Proctoria v0.5
 
 Fiscalização de prova on-line: engine para navegador, servidor, página da prova e módulo de administração.
 
 - Demonstração sem servidor: https://ginoterentimjr.github.io/proctoria/
-- Versões anteriores da demonstração: `/v0.3/`, `/v0.2/`, `/v0.1/`
+- Versões anteriores da demonstração: `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
 
 ## Componentes
 
@@ -17,6 +17,7 @@ Fiscalização de prova on-line: engine para navegador, servidor, página da pro
 | `prova.html` | Página da prova ligada ao servidor |
 | `admin.html` | Módulo de administração |
 | `servidor/index.js` | Servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 |
+| `servidor/seb.mjs` | Safe Exam Browser: arquivo de configuração, Config Key e conferência do navegador |
 | `docs/integracao-pionira.md` | Especificação da integração com a Pionira |
 
 ## O que o servidor acrescenta
@@ -27,6 +28,28 @@ Fiscalização de prova on-line: engine para navegador, servidor, página da pro
 - Acompanhamento ao vivo, mensagens entre administrador e participante, liberação de bloqueio, suspensão, encerramento e invalidação a distância.
 - Em cada sessão: download das gravações, do registro e do relatório formal.
 - Integração com a Pionira e prazo de retenção dos dados.
+
+## Opções por prova, no módulo de administração
+
+| Opção | Escolhas |
+| --- | --- |
+| Navegador aceito | Navegador comum (Google Chrome ou Microsoft Edge), somente o Safe Exam Browser, ou os dois |
+| Identidade | Foto do rosto, com ou sem a foto do documento de identificação |
+| Ausência diante da câmera | Tolerância em segundos (padrão: 10) e a consequência ao esgotá-la: invalidar a prova (prova sem pausas) ou suspender |
+| Demais regras | Suspensões até o bloqueio, tempos de advertência e suspensão, prova de vida, varredura do ambiente, gravações, calculadora e rascunho |
+
+## Safe Exam Browser
+
+O Safe Exam Browser (SEB) é um navegador de prova gratuito, para Windows e macOS, que ocupa a tela inteira e impede o uso de outros programas até a entrega. A escolha é feita por prova.
+
+- O participante recebe o mesmo endereço de sempre. Em prova que exige o SEB, a página orienta a instalação e apresenta o botão que abre a prova no programa (endereço `sebs://`).
+- O servidor entrega o arquivo de configuração em `/api/seb/config.seb`: endereço inicial, câmera, microfone e captura de tela autorizados, um único monitor e endereço de encerramento.
+- A cada acesso, o servidor confere a Config Key informada pelo SEB: SHA256 do endereço da página seguido da chave da configuração. O cálculo da chave foi validado com dois arquivos de configuração reais e suas chaves conhecidas.
+- No SEB, a engine dispensa a tela cheia e a janela exclusiva, que ficam a cargo do programa, e mantém câmera, microfone, olhar, voz, gravações e registro.
+- Se a versão do SEB não oferecer o compartilhamento de tela à página, a sessão segue sem a gravação da tela e o fato fica registrado.
+- Encerrar o SEB antes da entrega interrompe a sessão; ao voltar, vale a retomada, com a interrupção contada como suspensão.
+
+A compatibilidade com o SEB real (versões 3.7 para macOS e 3.10 para Windows) precisa ser confirmada em piloto antes de uma prova que valha nota: os testes desta versão usaram um SEB simulado.
 
 ## Publicação do servidor na Cloudflare
 
@@ -64,7 +87,7 @@ A administração abre em `http://127.0.0.1:8787/admin`.
     prova: { id: "disciplina-07", titulo: "Prova da disciplina" },
     areaDaProva: document.getElementById("prova"),   // ocultada durante cada suspensão
     regras: {                                        // demais regras em Proctoria.regrasPadrao
-      limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 0,
+      limiteSuspensoes: 3, identidade: true, identidadeDocumento: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10,
       sinais: { olhar_fora: { avisoSeg: 2, suspensaoSeg: 4, reincidencia: 4 } }
     },
     retomada: null,                                  // estado devolvido pelo servidor depois de uma queda
@@ -87,17 +110,18 @@ A administração abre em `http://127.0.0.1:8787/admin`.
 Olhar, cabeça, rosto e voz seguem a mesma progressão, com tempos ajustáveis por prova:
 
 1. **Advertência** na tela do participante depois de 2 s contínuos (cerca de 1 s de fala, para voz).
-2. **Suspensão** se a condição continuar por mais 4 s (3 s para rosto), ou por reincidência de advertências do mesmo sinal em 5 minutos.
+2. **Suspensão** se a condição continuar por mais 4 s (para rosto ausente, vale a tolerância definida na prova), ou por reincidência de advertências do mesmo sinal em 5 minutos.
 3. **Bloqueio** na suspensão de número `limiteSuspensoes`: a retomada depende do administrador. A liberação reinicia a contagem.
 
 Saída da janela, janela minimizada, encoberta ou redimensionada, saída da tela cheia, compartilhamento interrompido, câmera ou microfone interrompidos, monitor adicional e queda da sessão suspendem de imediato.
 
-Com a regra **sem pausas** ligada, o rosto fora da imagem pelo tempo definido encerra a prova como invalidada. As respostas são preservadas e a decisão final cabe ao administrador.
+Com a regra **sem pausas** ligada, o rosto fora da imagem além da tolerância (10 s por padrão) encerra a prova como invalidada. As respostas são preservadas e a decisão final cabe ao administrador. Com a regra desligada, a mesma tolerância conduz à suspensão.
 
 ## Limites desta versão
 
-- Funciona no Google Chrome e no Microsoft Edge em computador.
-- Um navegador comum detecta a saída da janela e reage, sem impedi-la, e não enxerga as outras abas nem os aplicativos abertos. Exigir o fechamento de outros programas requer navegador dedicado, como o Safe Exam Browser.
+- Funciona no Google Chrome e no Microsoft Edge em computador e, por escolha do administrador, no Safe Exam Browser.
+- Um navegador comum detecta a saída da janela e reage, sem impedi-la, e não enxerga as outras abas nem os aplicativos abertos. O bloqueio efetivo de outros programas depende do Safe Exam Browser.
+- A conferência da Config Key confirma a configuração do Safe Exam Browser, sem atestar o programa em si: um participante com conhecimento técnico avançado poderia simulá-la. Câmera, gravações e registro seguem como segunda barreira.
 - Os limiares de olhar, cabeça, voz e prova de vida são valores iniciais e pedem ajuste com participantes reais.
 - A conferência das fotos de identidade é feita pelo administrador, na auditoria. Não há comparação automática de rostos.
 - O relatório formal é uma página pronta para impressão; o PDF é gerado pela função de salvar em PDF do navegador.

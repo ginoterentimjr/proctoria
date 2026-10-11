@@ -1,6 +1,6 @@
 # Integração entre a Pionira e a Proctoria
 
-Especificação para a equipe técnica da Pionira. Versão 0.4 da Proctoria.
+Especificação para a equipe técnica da Pionira. Versão 0.5 da Proctoria.
 
 ## Visão geral
 
@@ -53,6 +53,8 @@ Content-Type: application/json
 {
   "codigo": "k7m2…",
   "endereco": "https://prova.exemplo.com/prova#k7m2…",
+  "enderecoSEB": "sebs://prova.exemplo.com/api/seb/config.seb?c=k7m2…",
+  "navegador": "comum",
   "prova": { "id": "5339f29cfe13f790", "titulo": "Valor Vitalício do Cliente: prova final", "duracaoMin": 60 },
   "jaIniciada": false
 }
@@ -61,6 +63,8 @@ Content-Type: application/json
 - `aluno.id` é o identificador do aluno na Pionira. É a chave que volta no resultado.
 - A chamada é idempotente: o mesmo aluno na mesma prova recebe sempre o mesmo endereço. Depois de uma queda, o aluno retoma a sessão pelo mesmo endereço.
 - O endereço é pessoal. A Pionira deve entregá-lo apenas ao aluno autenticado.
+- `navegador` informa a regra da prova: `comum` (Google Chrome ou Microsoft Edge), `seb` (somente o Safe Exam Browser) ou `ambos`.
+- A Pionira pode usar sempre `endereco`. Quando a prova exige o Safe Exam Browser, essa página orienta o aluno e apresenta o botão de abertura no programa. `enderecoSEB` abre a prova diretamente no Safe Exam Browser e serve a quem preferir oferecer esse botão na própria Pionira.
 
 ## 3. Receber o resultado
 

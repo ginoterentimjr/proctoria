@@ -1,7 +1,8 @@
-/*! Proctoria 0.4.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
+/*! Proctoria 0.5.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
 import { DurableObject } from "cloudflare:workers";
+import { configuracao as configSEB, plist as plistSEB, chaveDeConfiguracao, hashDaPagina } from "./seb.mjs";
 
-const VERSAO = "0.4.0";
+const VERSAO = "0.5.0";
 const DIA = 86400000;
 const CABECALHO_JSON = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const json = (dados, status = 200, extra) => new Response(JSON.stringify(dados), { status, headers: { ...CABECALHO_JSON, ...(extra || {}) } });
@@ -91,13 +92,22 @@ export default {
     if (!caminho.startsWith("/api/")) return env.ASSETS.fetch(req);
     try {
       let m;
+      // Safe Exam Browser: arquivo de configuração e endereço de encerramento
+      if (req.method === "GET" && caminho === "/api/seb/config.seb") {
+        return new Response(plistSEB(configSEB(url.origin)), { headers: { "content-type": "application/seb", "content-disposition": 'attachment; filename="proctoria.seb"', "cache-control": "private, max-age=1, no-transform" } });
+      }
+      if (req.method === "GET" && caminho === "/api/seb/sair") {
+        return new Response('<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Proctoria</title>' +
+          '<body style="font:18px/1.6 system-ui,sans-serif;background:#FAF5EC;color:#1B1512;display:grid;place-items:center;min-height:100vh;margin:0"><p>Prova encerrada. O Safe Exam Browser pode ser fechado.</p></body></html>',
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
       // trecho de gravação enviado pelo participante: direto ao armazenamento
       if (req.method === "PUT" && (m = /^\/api\/sessao\/gravacao\/(tela|camera)\/(\d{1,3})\/(\d{1,6})$/.exec(caminho))) {
         const p = await conferir(await chaveDe(env), portador(req));
         if (!p || !p.s) return falha(401, "Credencial da sessão inválida ou expirada.");
         const bytes = Number(req.headers.get("content-length") || 0);
         if (!bytes || bytes > 40 * 1024 * 1024) return falha(413, "Trecho de gravação fora do tamanho aceito.");
-        await env.ARQUIVOS.put(`sessoes/${p.s}/gravacao/${m[1]}/${preencher(m[2], 3)}/${preencher(m[3], 6)}.webm`, req.body, { httpMetadata: { contentType: "video/webm" } });
+        await env.ARQUIVOS.put(`sessoes/${p.s}/gravacao/${m[1]}/${preencher(m[2], 3)}/${preencher(m[3], 6)}.webm`, req.body, { httpMetadata: { contentType: /mp4/i.test(req.headers.get("content-type") || "") ? "video/mp4" : "video/webm" } });
         return json({ ok: true });
       }
       // material de consulta da prova, para o participante
@@ -121,13 +131,15 @@ export default {
         const partes = await listar(env, `sessoes/${m[1]}/gravacao/${m[2]}/${preencher(m[3], 3)}/`);
         if (!partes.length) return falha(404, "Gravação não encontrada.");
         const total = partes.reduce((s, x) => s + x.bytes, 0);
+        const primeira = await env.ARQUIVOS.head(partes[0].chave);
+        const mp4 = !!(primeira && primeira.httpMetadata && /mp4/.test(primeira.httpMetadata.contentType || ""));
         const { readable, writable } = new FixedLengthStream(total);
         ctx.waitUntil((async () => {
           for (const x of partes) { const o = await env.ARQUIVOS.get(x.chave); if (o) await o.body.pipeTo(writable, { preventClose: true }); }
           await writable.close();
         })().catch(() => {}));
-        return new Response(readable, { headers: { "content-type": "video/webm", "content-length": String(total), "cache-control": "private, no-store",
-          "content-disposition": `attachment; filename="proctoria_${m[1]}_${m[2]}_${m[3]}.webm"` } });
+        return new Response(readable, { headers: { "content-type": mp4 ? "video/mp4" : "video/webm", "content-length": String(total), "cache-control": "private, no-store",
+          "content-disposition": `attachment; filename="proctoria_${m[1]}_${m[2]}_${m[3]}.${mp4 ? "mp4" : "webm"}"` } });
       }
       if (req.method === "PUT" && (m = /^\/api\/admin\/provas\/([a-f0-9]{8,40})\/material$/.exec(caminho))) {
         if (!(await administrador(req, env))) return falha(401, "Acesso restrito ao administrador.");
@@ -167,7 +179,8 @@ CREATE TABLE IF NOT EXISTS tentativas (ip TEXT, quando INTEGER);
 `;
 
 const REGRAS_PROVA = {
-  limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 0,
+  limiteSuspensoes: 3, identidade: true, identidadeDocumento: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10, ausenciaSeg: 10,
+  navegador: "comum", sebConferirChave: true, sebChaveManual: "",
   gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true,
   avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10
 };
@@ -186,6 +199,7 @@ export class Banco extends DurableObject {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.sql.exec(ESQUEMA);
+    try { this.sql.exec("ALTER TABLE sessoes ADD COLUMN navegador TEXT"); } catch (e) { /* coluna já existente */ }
     if (!this.cfg("chave")) this.definir("chave", aleatorio(32));
     if (!this.cfg("integracao")) this.definir("integracao", "pct_" + aleatorio(24));
   }
@@ -205,10 +219,10 @@ export class Banco extends DurableObject {
   regrasCliente(p) {   // regras da prova no formato da engine
     const r = p.regras;
     return {
-      limiteSuspensoes: r.limiteSuspensoes, identidade: !!r.identidade, provaDeVida: r.provaDeVida, varreduraAmbiente: !!r.varreduraAmbiente,
+      limiteSuspensoes: r.limiteSuspensoes, identidade: !!r.identidade, identidadeDocumento: r.identidadeDocumento !== false, provaDeVida: r.provaDeVida, varreduraAmbiente: !!r.varreduraAmbiente,
       semPausasSeg: r.semPausasSeg || 0, gravarTela: !!r.gravarTela, gravarCamera: !!r.gravarCamera, exigirTelaInteiraCompartilhada: !!r.exigirTelaInteiraCompartilhada,
       trechoGravacaoMs: 10000, mostrarSinais: false,
-      sinais: { olhar_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, cabeca_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, rosto_ausente: { avisoSeg: r.avisoSeg } }
+      sinais: { olhar_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, cabeca_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, rosto_ausente: { avisoSeg: Math.min(r.avisoSeg, Math.max(0.5, (r.ausenciaSeg || 10) - 1)), suspensaoSeg: Math.max(1, (r.ausenciaSeg || 10) - r.avisoSeg) } }   // sem pausas desligado: a tolerância leva à suspensão
     };
   }
 
@@ -216,7 +230,7 @@ export class Banco extends DurableObject {
     const url = new URL(req.url), partes = url.pathname.split("/").filter(Boolean).slice(1), metodo = req.method;
     const corpo = async () => { try { return await req.json(); } catch (e) { return {}; } };
     try {
-      if (partes[0] === "convite") return await this.rotaConvite(req, partes, metodo);
+      if (partes[0] === "convite") return await this.rotaConvite(req, partes, metodo, corpo, url);
       if (partes[0] === "sessao") return await this.rotaSessao(req, partes, metodo, corpo, url);
       if (partes[0] === "admin") return await this.rotaAdmin(req, partes, metodo, corpo, url);
       if (partes[0] === "integracao") return await this.rotaIntegracao(req, partes, metodo, corpo, url);
@@ -229,7 +243,29 @@ export class Banco extends DurableObject {
 
   /* ----------------------------- convite --------------------------- */
 
-  async rotaConvite(req, partes, metodo) {
+  enderecoSEB(url, codigo) { return (url.protocol === "https:" ? "sebs" : "seb") + "://" + url.host + "/api/seb/config.seb?c=" + codigo; }
+
+  /* Identifica o navegador da sessão. No Safe Exam Browser, confere o valor informado pela API do SEB:
+     SHA256 do endereço da página seguido da Config Key da configuração entregue por este servidor. */
+  async navegadorDaSessao(req, b, url, regras) {
+    const seb = (b && b.seb) || null, ua = req.headers.get("user-agent") || "";
+    if (!seb && !/\bSEB\//.test(ua)) return { tipo: "comum" };
+    const nav = { tipo: "seb", versao: limpar(seb && seb.versao, 160), conferida: null };
+    if (regras.sebConferirChave) {
+      nav.conferida = false;
+      let pagina = null;
+      try { pagina = new URL(String((seb && seb.endereco) || "")); } catch (e) { pagina = null; }
+      const recebido = String((seb && seb.chave) || "").toLowerCase();
+      if (pagina && pagina.origin === url.origin && /^\/prova(\.html|\/)?$/.test(pagina.pathname) && /^[a-f0-9]{64}$/.test(recebido)) {
+        const chaves = [await chaveDeConfiguracao(configSEB(url.origin))];
+        if (regras.sebChaveManual) chaves.push(regras.sebChaveManual);
+        for (const k of chaves) if ((await hashDaPagina(pagina.href, k)) === recebido) nav.conferida = true;
+      }
+    }
+    return nav;
+  }
+
+  async rotaConvite(req, partes, metodo, corpo, url) {
     const c = this.um("SELECT * FROM convites WHERE codigo = ?", partes[1] || "");
     if (!c) return falha(404, "Convite não encontrado. Confira o endereço recebido.");
     const p = this.prova(c.prova);
@@ -238,19 +274,25 @@ export class Banco extends DurableObject {
     let s = c.sessao ? this.um("SELECT * FROM sessoes WHERE id = ?", c.sessao) : null;
     const total = this.um("SELECT COUNT(*) AS n FROM questoes WHERE prova = ?", p.id).n;
     const publico = {
-      prova: { id: p.id, titulo: p.titulo, duracaoMin: p.duracaoMin, instrucoes: p.instrucoes, consulta: p.consulta, total,
+      prova: { id: p.id, titulo: p.titulo, duracaoMin: p.duracaoMin, instrucoes: p.instrucoes, consulta: p.consulta, total, navegador: p.regras.navegador || "comum",
         ferramentas: { calculadora: !!p.regras.calculadora, rascunho: !!p.regras.rascunho }, regras: this.regrasCliente(p),
-        resumoRegras: { limiteSuspensoes: p.regras.limiteSuspensoes, semPausasSeg: p.regras.semPausasSeg || 0, identidade: !!p.regras.identidade, varreduraAmbiente: !!p.regras.varreduraAmbiente } },
+        resumoRegras: { limiteSuspensoes: p.regras.limiteSuspensoes, semPausasSeg: p.regras.semPausasSeg || 0, ausenciaSeg: p.regras.ausenciaSeg || 10, identidade: !!p.regras.identidade, identidadeDocumento: p.regras.identidadeDocumento !== false, varreduraAmbiente: !!p.regras.varreduraAmbiente } },
       aluno: { id: c.aluno_id, nome: c.nome },
       situacao: s ? (s.estado === "encerrada" ? "encerrada" : s.inicio ? "em_andamento" : "aberta") : "nova",
       janela: { inicioEm: p.inicioEm, fimEm: p.fimEm, agora }
     };
+    if (publico.prova.navegador !== "comum") publico.seb = { endereco: this.enderecoSEB(url, c.codigo), instalacao: "https://safeexambrowser.org/download_en.html" };
     if (metodo === "GET" && partes.length === 2) return json(publico);
     if (metodo === "POST" && partes[2] === "abrir") {
       if (p.inicioEm && agora < Date.parse(p.inicioEm)) return falha(403, "A prova ainda não está aberta.");
       if (p.fimEm && agora > Date.parse(p.fimEm) && !(s && s.inicio)) return falha(403, "O período de aplicação desta prova está encerrado.");
       if (!total) return falha(409, "Esta prova ainda não tem questões cadastradas.");
       if (s && s.estado === "encerrada") return json({ ...publico, encerrada: true });
+      const nav = await this.navegadorDaSessao(req, await corpo(), url, p.regras);
+      if (publico.prova.navegador === "seb") {
+        if (nav.tipo !== "seb") return json({ erro: "Esta prova é aplicada no Safe Exam Browser. Abra o endereço recebido no Safe Exam Browser.", motivo: "seb_exigido" }, 403);
+        if (p.regras.sebConferirChave && !nav.conferida) return json({ erro: "A configuração do Safe Exam Browser não confere com a desta prova. Feche o programa e abra a prova novamente pelo endereço recebido.", motivo: "seb_configuracao" }, 403);
+      }
       let retomada = null;
       if (!s) {
         const id = aleatorio(12);
@@ -271,8 +313,9 @@ export class Banco extends DurableObject {
         this.sql.exec("UPDATE sessoes SET quedas = quedas + ?, segmento = ?, ultimo_sinal = ? WHERE id = ?", s.inicio ? 1 : 0, segmento, agora, s.id);
         s.segmento = segmento;
       }
+      this.sql.exec("UPDATE sessoes SET navegador = ? WHERE id = ?", JSON.stringify(nav), s.id);
       const credencial = await assinar(this.cfg("chave"), { s: s.id, p: p.id, e: agora + 12 * 3600000 });
-      return json({ ...publico, credencial, retomada, segmentoInicial: s.segmento || 0,
+      return json({ ...publico, credencial, retomada, navegador: nav, segmentoInicial: s.segmento || 0,
         sessao: { id: s.id, criadaEm: new Date(s.criada).toISOString(), inicio: s.inicio, fimPrevisto: s.fim_previsto, agora } });
     }
     return falha(405, "Método não aceito.");
@@ -290,7 +333,7 @@ export class Banco extends DurableObject {
     for (const campo of Object.keys(evidencias || {})) {
       const m = /^data:([\w/+.-]+);base64,(.+)$/.exec(String(evidencias[campo]));
       if (!m || !/^[a-zA-Z]{1,12}$/.test(campo)) continue;
-      const ext = m[1].indexOf("jpeg") >= 0 ? "jpg" : m[1].indexOf("webm") >= 0 ? "webm" : m[1].indexOf("png") >= 0 ? "png" : "bin";
+      const ext = m[1].indexOf("jpeg") >= 0 ? "jpg" : m[1].indexOf("webm") >= 0 ? "webm" : m[1].indexOf("mp4") >= 0 ? "m4a" : m[1].indexOf("png") >= 0 ? "png" : "bin";
       const chave = `sessoes/${sessao}/evidencias/${preencher(n, 5)}-${campo}.${ext}`;
       await this.env.ARQUIVOS.put(chave, deB64u(m[2]), { httpMetadata: { contentType: m[1] } });
       chaves[campo] = chave;
@@ -442,7 +485,8 @@ export class Banco extends DurableObject {
         if (b.novaChaveIntegracao) this.definir("integracao", "pct_" + aleatorio(24));
         await this.agendarLimpeza();
       }
-      return json({ pioniraWebhook: this.cfg("pioniraWebhook") || "", retencaoDias: parseInt(this.cfg("retencaoDias") || "0", 10), chaveIntegracao: this.cfg("integracao"), versao: VERSAO, armazenamento: !!this.env.ARQUIVOS });
+      return json({ pioniraWebhook: this.cfg("pioniraWebhook") || "", retencaoDias: parseInt(this.cfg("retencaoDias") || "0", 10), chaveIntegracao: this.cfg("integracao"), versao: VERSAO, armazenamento: !!this.env.ARQUIVOS,
+        seb: { configuracao: url.origin + "/api/seb/config.seb", chave: await chaveDeConfiguracao(configSEB(url.origin)) } });
     }
 
     if (acao === "provas") {
@@ -450,7 +494,7 @@ export class Banco extends DurableObject {
       if (!id && metodo === "GET") {
         return json(this.q("SELECT id FROM provas WHERE arquivada = 0 ORDER BY criada DESC").map((r) => {
           const pr = this.prova(r.id);
-          return { id: pr.id, titulo: pr.titulo, duracaoMin: pr.duracaoMin, consulta: pr.consulta, atualizada: pr.atualizada,
+          return { id: pr.id, titulo: pr.titulo, duracaoMin: pr.duracaoMin, consulta: pr.consulta, atualizada: pr.atualizada, navegador: pr.regras.navegador || "comum",
             questoes: this.um("SELECT COUNT(*) AS n FROM questoes WHERE prova = ?", pr.id).n,
             convites: this.um("SELECT COUNT(*) AS n FROM convites WHERE prova = ?", pr.id).n,
             emAndamento: this.um("SELECT COUNT(*) AS n FROM sessoes WHERE prova = ? AND estado != 'encerrada'", pr.id).n,
@@ -572,9 +616,13 @@ export class Banco extends DurableObject {
       ordemAleatoria: b.ordemAleatoria !== false, embaralharAlternativas: b.embaralharAlternativas !== false,
       inicioEm: b.inicioEm || null, fimEm: b.fimEm || null,
       regras: {
-        limiteSuspensoes: num(r.limiteSuspensoes, 0, 20, 3), identidade: !!r.identidade,
+        limiteSuspensoes: num(r.limiteSuspensoes, 0, 20, 3), identidade: !!r.identidade, identidadeDocumento: r.identidadeDocumento !== false,
+        ausenciaSeg: num(num(r.semPausasSeg, 0, 300, 10) > 0 ? r.semPausasSeg : r.ausenciaSeg, 3, 300, 10),
         provaDeVida: ["obrigatoria", "registrar", "nao"].indexOf(r.provaDeVida) >= 0 ? r.provaDeVida : "registrar",
-        varreduraAmbiente: !!r.varreduraAmbiente, semPausasSeg: num(r.semPausasSeg, 0, 300, 0), gravarTela: !!r.gravarTela, gravarCamera: !!r.gravarCamera,
+        varreduraAmbiente: !!r.varreduraAmbiente, semPausasSeg: num(r.semPausasSeg, 0, 300, 10),
+        navegador: ["comum", "seb", "ambos"].indexOf(r.navegador) >= 0 ? r.navegador : "comum", sebConferirChave: r.sebConferirChave !== false,
+        sebChaveManual: /^[a-f0-9]{64}$/.test(String(r.sebChaveManual || "").trim().toLowerCase()) ? String(r.sebChaveManual).trim().toLowerCase() : "",
+        gravarTela: !!r.gravarTela, gravarCamera: !!r.gravarCamera,
         exigirTelaInteiraCompartilhada: r.exigirTelaInteiraCompartilhada !== false, avisoSeg: num(r.avisoSeg, 0.5, 30, 2), suspensaoSeg: num(r.suspensaoSeg, 1, 60, 4),
         calculadora: !!r.calculadora, rascunho: !!r.rascunho, quedaMaximaMin: num(r.quedaMaximaMin, 1, 120, 10)
       }
@@ -591,8 +639,9 @@ export class Banco extends DurableObject {
     return codigo;
   }
   convitesDe(prova, origem) {
+    const url = new URL(origem);
     return this.q("SELECT c.codigo, c.aluno_id, c.nome, c.email, c.origem, c.criado, c.sessao, s.estado, s.situacao, s.inicio FROM convites c LEFT JOIN sessoes s ON s.id = c.sessao WHERE c.prova = ? ORDER BY c.nome", prova)
-      .map((c) => ({ codigo: c.codigo, alunoId: c.aluno_id, nome: c.nome, email: c.email, origem: c.origem, sessao: c.sessao, endereco: origem + "/prova#" + c.codigo,
+      .map((c) => ({ codigo: c.codigo, alunoId: c.aluno_id, nome: c.nome, email: c.email, origem: c.origem, sessao: c.sessao, endereco: origem + "/prova#" + c.codigo, enderecoSEB: this.enderecoSEB(url, c.codigo),
         situacao: !c.sessao ? "Não iniciada" : c.estado === "encerrada" ? "Encerrada" : c.inicio ? "Em prova" : "Em verificação" }));
   }
 
@@ -602,7 +651,7 @@ export class Banco extends DurableObject {
     const r = {
       id: s.id, prova: s.prova, aluno, estado: s.estado, situacao: s.situacao, situacaoFinal: s.situacao_final || "", criada: s.criada, inicio: s.inicio, fimPrevisto: s.fim_previsto, encerrada: s.encerrada,
       nota: s.nota, total: s.total, quedas: s.quedas || 0, suspensoes: cli.suspensoes || 0, advertencias: cli.advertencias || 0, bloqueios: cli.bloqueios || 0,
-      suspensa: !!cli.suspensa, bloqueada: !!cli.bloqueada, motivos: cli.motivos || [], pionira: ler(s.pionira, null)
+      suspensa: !!cli.suspensa, bloqueada: !!cli.bloqueada, motivos: cli.motivos || [], pionira: ler(s.pionira, null), navegador: ler(s.navegador, null)
     };
     if (aoVivo) {
       r.semSinalMs = s.estado === "encerrada" ? 0 : semSinalMs;
@@ -639,7 +688,7 @@ export class Banco extends DurableObject {
       Object.keys(porSeg).map(Number).sort((a, b) => a - b).forEach((seg) => {
         const m = ((meta[tipo] || []).filter((g) => g.segmento === seg)[0]) || {};
         const inicioT = m.inicioT === undefined ? null : m.inicioT;
-        gravacoes[tipo].push({ arquivo: `proctoria_${s.id}_${tipo}_${seg}.webm`, segmento: seg, inicioT: inicioT === null ? (cli.inicioProvaT || 0) : inicioT,
+        gravacoes[tipo].push({ arquivo: `proctoria_${s.id}_${tipo}_${seg}.${/mp4/.test(m.mime || "") ? "mp4" : "webm"}`, segmento: seg, inicioT: inicioT === null ? (cli.inicioProvaT || 0) : inicioT,
           fimT: m.fimT === undefined || m.fimT === null ? Math.min(fimT, (inicioT === null ? (cli.inicioProvaT || 0) : inicioT) + porSeg[seg].partes * 10000) : m.fimT, bytes: porSeg[seg].bytes });
       });
     }
@@ -655,7 +704,7 @@ export class Banco extends DurableObject {
       formato: "proctoria-registro", versao: VERSAO, sessao: s.id, aluno: ler(s.aluno, {}), prova: { id: p ? p.id : s.prova, titulo: p ? p.titulo : "" }, regras: p ? p.regras : {},
       situacao: s.estado === "encerrada" ? s.situacao : "em_andamento", situacaoFinal: s.situacao_final || "", criadaEm: new Date(s.criada).toISOString(),
       inicioProvaT: s.inicio ? (cli.inicioProvaT !== undefined && cli.inicioProvaT !== null ? cli.inicioProvaT : s.inicio - s.criada) : null, fimT,
-      ambiente: ler(s.ambiente, {}),
+      ambiente: { ...ler(s.ambiente, {}), navegadorDaProva: ler(s.navegador, null) },
       resumo: { ...(resumoCliente || {}), duracaoProvaMs: s.inicio ? (s.encerrada || Date.now()) - s.inicio : 0, suspensoes: cli.suspensoes || 0, tempoSuspensoMs: cli.tempoSuspensoMs || 0,
         advertencias: cli.advertencias || 0, bloqueios: cli.bloqueios || 0, liberacoes: cli.liberacoes || 0, sinaisParaRevisao: conta("revisao"), acoesBloqueadas: conta("bloqueio"), quedas: s.quedas || 0 },
       eventos, capturas: [], telemetria: { colunas: ["t", "rostos", "desvioYaw", "desvioPitch", "olharX", "olharY", "vozDb", "vozAtiva", "foco", "suspensa"], linhas },
@@ -728,7 +777,7 @@ export class Banco extends DurableObject {
       if (!b.aluno || !b.aluno.id || !b.aluno.nome) return falha(400, "Informe aluno.id e aluno.nome.");
       const codigo = this.criarConvite(p.id, b.aluno, "pionira");
       const c = this.um("SELECT sessao FROM convites WHERE codigo = ?", codigo);
-      return json({ codigo, endereco: url.origin + "/prova#" + codigo, prova: { id: p.id, titulo: p.titulo, duracaoMin: p.duracaoMin }, jaIniciada: !!c.sessao });
+      return json({ codigo, endereco: url.origin + "/prova#" + codigo, enderecoSEB: this.enderecoSEB(url, codigo), navegador: p.regras.navegador || "comum", prova: { id: p.id, titulo: p.titulo, duracaoMin: p.duracaoMin }, jaIniciada: !!c.sessao });
     }
     if (partes[1] === "resultados" && metodo === "GET") {
       const prova = url.searchParams.get("prova"), aluno = url.searchParams.get("aluno");

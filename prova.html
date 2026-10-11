@@ -57,6 +57,35 @@
 
   <main id="v-erro" hidden><h1>Prova indisponível</h1><p class="entrada" id="texto-erro"></p></main>
 
+  <main id="v-codigo" hidden>
+    <h1>Código de acesso</h1>
+    <p class="entrada">Informe o código de acesso recebido para a prova.</p>
+    <form class="ficha" id="form-codigo" style="max-width:560px">
+      <label class="campo" for="campo-codigo">Código de acesso
+        <input type="text" id="campo-codigo" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+      </label>
+      <div class="acoes"><button class="botao" type="submit">Prosseguir</button></div>
+    </form>
+  </main>
+
+  <main id="v-seb" hidden>
+    <p class="sobre" id="s-aluno"></p>
+    <h1 id="s-titulo"></h1>
+    <p class="entrada">Esta prova é aplicada no Safe Exam Browser, um navegador de prova que ocupa a tela inteira e impede o uso de outros programas até a entrega.</p>
+    <div class="ficha" style="max-width:720px">
+      <h2>Como abrir a prova</h2>
+      <ol style="padding-left:22px;display:grid;gap:8px;margin:0">
+        <li>Instale o Safe Exam Browser, caso ainda não esteja instalado neste computador.</li>
+        <li>Feche os demais programas e selecione Abrir a prova no Safe Exam Browser.</li>
+        <li>Autorize o uso da câmera, do microfone e da gravação da tela quando o programa solicitar.</li>
+      </ol>
+      <div class="acoes">
+        <a class="botao" id="s-abrir" href="#">Abrir a prova no Safe Exam Browser</a>
+        <a class="botao sec" id="s-instalar" href="https://safeexambrowser.org/download_en.html" target="_blank" rel="noopener">Instalar o Safe Exam Browser</a>
+      </div>
+    </div>
+  </main>
+
   <main id="v-entrada" hidden>
     <p class="sobre" id="e-aluno"></p>
     <h1 id="e-titulo"></h1>
@@ -73,6 +102,7 @@
           <p class="nota" style="margin:0">A prova abre em uma janela própria, maximizada e sem outras abas. Minimizar ou redimensionar essa janela suspende a prova. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
           <div class="acoes"><button class="botao" type="button" id="abrir-janela">Abrir a prova em janela exclusiva</button></div>
           <p class="alerta" id="aviso-janela" role="status" hidden></p>
+          <p class="nota" id="opcao-seb" style="margin:0" hidden>Esta prova também pode ser realizada no Safe Exam Browser. <a id="opcao-seb-link" href="#">Abrir a prova no Safe Exam Browser</a></p>
         </div>
         <form class="ficha" id="ficha" hidden>
           <p class="nota" id="aviso-retomada" style="margin:0" hidden>Há uma sessão em andamento para este convite. Ao retomar, a verificação é refeita, a interrupção fica registrada como suspensão e o tempo de prova segue em contagem.</p>
@@ -113,6 +143,7 @@
     <h1 id="titulo-fim">Prova entregue</h1>
     <p class="entrada" id="texto-fim"></p>
     <p class="nota" id="envio-fim" role="status"></p>
+    <p id="saida-seb" hidden><a class="botao" href="/api/seb/sair">Encerrar o Safe Exam Browser</a></p>
   </main>
 </div>
 
@@ -134,14 +165,28 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var LETRAS = "ABCDEFGHIJ";
-  var codigo = (location.hash || "").replace(/^#/, "").replace(/[^a-z0-9]/gi, "");
-  var EXCLUSIVA = window.name === "proctoria-prova";
+  var limparCodigo = function (t) { return String(t || "").replace(/[^a-z0-9]/gi, ""); };
+  var codigo = limparCodigo((location.hash || "").replace(/^#/, "")) || limparCodigo(new URLSearchParams(location.search).get("c"));
+  /* Safe Exam Browser: ele próprio é a janela exclusiva, em tela cheia, e informa a chave da configuração em uso. */
+  var SEB = window.SafeExamBrowser || null;
+  var EM_SEB = !!SEB || /\bSEB\//.test(navigator.userAgent);
+  var EXCLUSIVA = window.name === "proctoria-prova" || EM_SEB;
+  function dadosSEB() {
+    return new Promise(function (ok) {
+      if (!EM_SEB) return ok(null);
+      var seg = (SEB && SEB.security) || {}, feito = false;
+      var pronto = function () { if (feito) return; feito = true; ok({ versao: (SEB && SEB.version) || "", chave: seg.configKey || "", endereco: location.href.replace(/#.*$/, "") }); };
+      if (seg.configKey || typeof seg.updateKeys !== "function") return pronto();
+      try { seg.updateKeys(pronto); } catch (e) { pronto(); }
+      setTimeout(pronto, 1500);
+    });
+  }
   var convite = null, credencial = null, sessao = null, ferramentas = null;
   var total = 0, atual = 1, marcadas = [], fimPrevisto = 0, desvioRelogio = 0, encerrando = false;
   var enviados = {}, evidEnviadas = {}, telemetriaAte = 0, conversaDesde = 0, confirmados = [], tique = 0, falhas = 0, sincronizando = false;
   var fila = [], enviandoTrecho = false, gravMeta = { tela: {}, camera: {} }, gravMetaMudou = false, rascunhoPendente = null, sincId = null, relogioId = null;
 
-  function mostrar(vista) { ["carregando", "erro", "entrada", "prova", "fim"].forEach(function (v) { $("v-" + v).hidden = v !== vista; }); window.scrollTo(0, 0); }
+  function mostrar(vista) { ["carregando", "erro", "codigo", "seb", "entrada", "prova", "fim"].forEach(function (v) { $("v-" + v).hidden = v !== vista; }); window.scrollTo(0, 0); }
   function erro(texto) { $("texto-erro").textContent = texto; mostrar("erro"); }
   function api(metodo, caminho, corpo) {
     return fetch(caminho, { method: metodo, headers: Object.assign({ "content-type": "application/json" }, credencial ? { authorization: "Bearer " + credencial } : {}), body: corpo ? JSON.stringify(corpo) : undefined })
@@ -151,9 +196,19 @@
   function item(texto) { var li = document.createElement("li"); li.textContent = texto; return li; }
 
   /* ----------------------------- entrada --------------------------- */
-  if (!codigo) { erro("O endereço está incompleto. Utilize o endereço recebido para a prova."); return; }
+  $("form-codigo").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var c = limparCodigo($("campo-codigo").value);
+    if (c) location.replace(location.pathname + "?c=" + c);
+  });
+  if (!codigo) { mostrar("codigo"); return; }
   api("GET", "/api/convite/" + codigo).then(function (d) {
     convite = d;
+    if (d.prova.navegador === "seb" && !EM_SEB && d.situacao !== "encerrada") {
+      $("s-aluno").textContent = d.aluno.nome; $("s-titulo").textContent = d.prova.titulo; document.title = d.prova.titulo + " | Proctoria";
+      $("s-abrir").href = d.seb.endereco; $("s-instalar").href = d.seb.instalacao;
+      mostrar("seb"); return;
+    }
     $("marca-prova").textContent = d.prova.titulo;
     $("e-aluno").textContent = d.aluno.nome;
     $("e-titulo").textContent = d.prova.titulo;
@@ -166,17 +221,20 @@
       dt.textContent = x[0]; dd.textContent = x[1]; div.appendChild(dt); div.appendChild(dd); dl.appendChild(div);
     });
     var r = d.prova.resumoRegras, ul = $("e-regras"); ul.textContent = "";
-    ul.appendChild(item("A prova ocorre em tela cheia, com câmera, microfone e tela inteira gravados do início ao fim."));
+    ul.appendChild(item(EM_SEB ? "A prova ocorre no Safe Exam Browser, com câmera, microfone e tela gravados do início ao fim."
+      : "A prova ocorre em tela cheia, com câmera, microfone e tela inteira gravados do início ao fim."));
     ul.appendChild(item("Olhar fora da tela, rosto ausente, outra pessoa na imagem e som de voz geram advertência e, se a condição continuar, suspensão."));
-    ul.appendChild(item("Sair da janela, minimizar, redimensionar ou interromper o compartilhamento suspende a prova de imediato."));
+    ul.appendChild(item(EM_SEB ? "Encerrar o Safe Exam Browser antes da entrega interrompe a sessão, e a interrupção conta como suspensão."
+      : "Sair da janela, minimizar, redimensionar ou interromper o compartilhamento suspende a prova de imediato."));
     if (r.limiteSuspensoes > 0) ul.appendChild(item("Na suspensão de número " + r.limiteSuspensoes + ", a prova fica bloqueada até a liberação do administrador."));
     if (r.semPausasSeg > 0) ul.appendChild(item("Prova sem pausas: o rosto fora da imagem por " + r.semPausasSeg + " segundos invalida a prova."));
     ul.appendChild(item("O tempo de prova segue em contagem durante suspensões, bloqueios e interrupções."));
     ul.appendChild(item("Copiar, colar, imprimir e os atalhos do navegador ficam bloqueados. " + (d.prova.ferramentas.calculadora || d.prova.ferramentas.rascunho ? "Calculadora e rascunho estão disponíveis na própria tela." : "")));
+    if (d.prova.navegador === "ambos" && !EM_SEB && d.seb) { $("opcao-seb-link").href = d.seb.endereco; $("opcao-seb").hidden = false; }
     if (d.prova.instrucoes) { $("e-instrucoes").textContent = d.prova.instrucoes; $("e-instrucoes-bloco").hidden = false; }
     if (d.situacao === "em_andamento" || d.situacao === "aberta") { $("aviso-retomada").hidden = d.situacao !== "em_andamento"; $("iniciar").textContent = d.situacao === "em_andamento" ? "Retomar a prova" : "Iniciar a verificação"; }
     if (EXCLUSIVA) {
-      try { window.moveTo(screen.availLeft || 0, screen.availTop || 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch (e) {}
+      if (!EM_SEB) try { window.moveTo(screen.availLeft || 0, screen.availTop || 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch (e) {}
       $("lancador").hidden = true; $("ficha").hidden = false;
     }
     mostrar("entrada");
@@ -195,7 +253,7 @@
     ev.preventDefault();
     if (!$("consentimento").checked) return;
     $("iniciar").disabled = true; $("aviso-inicio").hidden = true;
-    api("POST", "/api/convite/" + codigo + "/abrir").then(function (d) {
+    dadosSEB().then(function (seb) { return api("POST", "/api/convite/" + codigo + "/abrir", seb ? { seb: seb } : undefined); }).then(function (d) {
       if (d.encerrada) { erro("Esta prova já foi encerrada para este convite."); return; }
       credencial = d.credencial;
       desvioRelogio = d.sessao.agora - Date.now();
@@ -205,11 +263,12 @@
       if (d.retomada) conversaDesde = 0;
       sessao = Proctoria.criar({
         aluno: d.aluno, prova: { id: d.prova.id, titulo: d.prova.titulo }, areaDaProva: $("area-prova"),
-        regras: d.prova.regras, retomada: d.retomada || null, segmentoInicial: d.segmentoInicial || 0,
+        regras: Object.assign({}, d.prova.regras, { ambienteSEB: EM_SEB }), retomada: d.retomada || null, segmentoInicial: d.segmentoInicial || 0,
         aoTrecho: aoTrecho,
         aoEncerrar: function (res) { finalizar(res); }
       });
       window.sessaoProctoria = sessao;
+      if (EM_SEB) sessao.registrar("Prova aberta no Safe Exam Browser", { "versão": (d.navegador && d.navegador.versao) || "", "configuração conferida": d.navegador && d.navegador.conferida === true ? "sim" : d.navegador && d.navegador.conferida === false ? "não" : "conferência desligada" });
       $("canal").hidden = false;
       sincId = setInterval(sincronizar, 4000);
       return sessao.preparar().then(function () { return api("POST", "/api/sessao/iniciar"); }).then(function (i) {
@@ -312,7 +371,7 @@
 
   /* ----------------------------- envio ao servidor ----------------- */
   function aoTrecho(tipo, blob, info) {
-    if (!gravMeta[tipo][info.segmento]) { gravMeta[tipo][info.segmento] = { segmento: info.segmento, inicioT: info.inicioT }; gravMetaMudou = true; }
+    if (!gravMeta[tipo][info.segmento]) { gravMeta[tipo][info.segmento] = { segmento: info.segmento, inicioT: info.inicioT, mime: info.mime }; gravMetaMudou = true; }
     fila.push({ tipo: tipo, segmento: info.segmento, n: info.n, blob: blob, tentativas: 0 });
     enviarTrechos();
   }
@@ -433,6 +492,7 @@
       return api("POST", "/api/sessao/entregar", { situacao: situacao, resumo: reg.resumo, ambiente: reg.ambiente, gravacoes: meta, estado: Object.assign(sessao.estado(), { suspensa: false, bloqueada: false }), rascunho: ferramentas ? ferramentas.rascunho() : undefined });
     }).then(function () {
       $("envio-fim").textContent = fila.length ? "A prova foi registrada. Parte das gravações não pôde ser enviada e ficou sinalizada ao administrador." : "Todos os registros foram enviados. Esta janela pode ser fechada.";
+      $("saida-seb").hidden = !EM_SEB;
     }, function () { $("envio-fim").textContent = "Não foi possível confirmar o envio final. Mantenha esta janela aberta e avise o administrador."; });
   }
   function finalizarTela(situacao, jaEnviado) {
@@ -445,7 +505,7 @@
       encerrada_pelo_administrador: "A sessão foi encerrada por determinação do administrador. As respostas assinaladas foram registradas." };
     $("titulo-fim").textContent = titulos[situacao] || "Sessão encerrada";
     $("texto-fim").textContent = textos[situacao] || "A sessão foi encerrada.";
-    if (jaEnviado) { $("envio-fim").textContent = "Esta janela pode ser fechada."; clearInterval(sincId); if (sessao) { try { sessao.encerrar(situacao); } catch (e) {} } }
+    if (jaEnviado) { $("envio-fim").textContent = "Esta janela pode ser fechada."; $("saida-seb").hidden = !EM_SEB; clearInterval(sincId); if (sessao) { try { sessao.encerrar(situacao); } catch (e) {} } }
     mostrar("fim");
   }
 })();

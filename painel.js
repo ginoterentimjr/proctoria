@@ -1,4 +1,4 @@
-/*! Proctoria 0.4.0 | painel de auditoria da sessão */
+/*! Proctoria 0.5.0 | painel de auditoria da sessão */
 (function (global) {
   "use strict";
 
@@ -99,6 +99,13 @@
     return n;
   }
   function doisDigitos(n) { return (n < 10 ? "0" : "") + n; }
+  function navegadorDaProva(amb) {
+    var n = (amb || {}).navegadorDaProva;
+    if (!n) return (amb || {}).safeExamBrowser ? "Safe Exam Browser" : "Navegador comum";
+    if (n.tipo !== "seb") return "Navegador comum";
+    return "Safe Exam Browser" + (n.versao ? " (" + String(n.versao).replace(/_/g, " ") + ")" : "") +
+      (n.conferida === true ? ", configuração conferida" : n.conferida === false ? ", configuração sem conferência positiva" : "");
+  }
   function relogio(ms) {
     var s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
     return (h ? h + ":" : "") + doisDigitos(m) + ":" + doisDigitos(s % 60);
@@ -156,6 +163,7 @@
         dado("Situação", SITUACOES[registro.situacao] || registro.situacao || ""),
         dado("Início da sessão", registro.criadaEm ? new Date(registro.criadaEm).toLocaleString("pt-BR") : ""),
         dado("Duração da prova", relogio(r.duracaoProvaMs || 0)),
+        dado("Navegador da prova", navegadorDaProva(amb)),
         dado("Calibragem do olhar", textoCal),
         dado("Tela compartilhada", amb.superficieCompartilhada === "monitor" ? "Tela inteira" : (amb.superficieCompartilhada || "Não informada")),
         dado("Atalhos de sistema retidos", amb.tecladoRetido ? "Sim, pelo navegador em tela cheia" : "Não disponível neste navegador"),

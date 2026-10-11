@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Proctoria v0.4</title>
+<title>Proctoria v0.5</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
@@ -78,7 +78,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
 </head>
 <body>
 <div class="pagina">
-  <header class="marca"><b>Proctoria</b><span>Versão 0.4 de demonstração</span></header>
+  <header class="marca"><b>Proctoria</b><span>Versão 0.5 de demonstração</span></header>
 
   <!-- INÍCIO -->
   <main id="v-inicio">
@@ -124,9 +124,10 @@ details>div{display:grid;gap:14px;margin-top:14px}
               </label>
             </div>
             <label class="campo" for="sem-pausas">Sem pausas: segundos de rosto fora da imagem que invalidam a prova (0 para desligar)
-              <input type="number" id="sem-pausas" min="0" max="120" step="1" value="0">
+              <input type="number" id="sem-pausas" min="0" max="120" step="1" value="10">
             </label>
-            <label class="marcar" for="r-identidade"><input type="checkbox" id="r-identidade" checked><span>Registrar a identidade: foto do rosto e do documento</span></label>
+            <label class="marcar" for="r-identidade"><input type="checkbox" id="r-identidade" checked><span>Registrar a identidade: foto do rosto antes da prova</span></label>
+            <label class="marcar" for="r-documento"><input type="checkbox" id="r-documento" checked><span>Exigir também a foto do documento de identificação</span></label>
             <label class="marcar" for="r-vida"><input type="checkbox" id="r-vida" checked><span>Aplicar a prova de vida antes do início</span></label>
             <label class="marcar" for="r-varredura"><input type="checkbox" id="r-varredura"><span>Registrar o ambiente com a câmera, em quatro imagens</span></label>
             <label class="marcar" for="r-tela-inteira"><input type="checkbox" id="r-tela-inteira" checked><span>Exigir o compartilhamento da tela inteira, recusando janela ou aba</span></label>
@@ -259,7 +260,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
         exigirTelaInteiraCompartilhada: $("r-tela-inteira").checked,
         gravarTela: $("r-gravar-tela").checked,
         gravarCamera: $("r-gravar-camera").checked,
-        identidade: $("r-identidade").checked,
+        identidade: $("r-identidade").checked, identidadeDocumento: $("r-documento").checked,
         provaDeVida: $("r-vida").checked ? "registrar" : "nao",
         varreduraAmbiente: $("r-varredura").checked,
         semPausasSeg: Math.max(0, parseInt($("sem-pausas").value, 10) || 0),

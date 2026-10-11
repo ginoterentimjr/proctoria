@@ -1,4 +1,4 @@
-/*! Proctoria 0.4.0 | relatório formal de ocorrências da sessão, pronto para impressão em PDF */
+/*! Proctoria 0.5.0 | relatório formal de ocorrências da sessão, pronto para impressão em PDF */
 (function (global) {
   "use strict";
 
@@ -16,6 +16,13 @@
 
   function e(t) { return String(t === undefined || t === null ? "" : t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function dois(n) { return (n < 10 ? "0" : "") + n; }
+  function navegadorDaProva(amb) {
+    var n = (amb || {}).navegadorDaProva;
+    if (!n) return (amb || {}).safeExamBrowser ? "Safe Exam Browser" : "Navegador comum";
+    if (n.tipo !== "seb") return "Navegador comum";
+    return "Safe Exam Browser" + (n.versao ? " (" + String(n.versao).replace(/_/g, " ") + ")" : "") +
+      (n.conferida === true ? ", configuração conferida" : n.conferida === false ? ", configuração sem conferência positiva" : "");
+  }
   function relogio(ms) {
     var s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
     return (h ? h + ":" : "") + dois(m) + ":" + dois(s % 60);
@@ -94,6 +101,7 @@
     p.push("<dl>" + cel("Participante", (registro.aluno || {}).nome) + cel("Identificador do participante", (registro.aluno || {}).id) +
       cel("Prova", (registro.prova || {}).titulo) + cel("Sessão", op.sessao || (registro.sessao || "") || "Registro local") +
       cel("Início da sessão", dataHora(registro.criadaEm)) + cel("Duração da prova", relogio(r.duracaoProvaMs || 0)) +
+      cel("Navegador da prova", navegadorDaProva(amb)) +
       cel("Situação", (op.situacaoFinal ? op.situacaoFinal + " (decisão do administrador). Situação original: " : "") + (SITUACOES[registro.situacao] || registro.situacao || "")) +
       cel("Nota", registro.nota === undefined || registro.nota === null ? "Não apurada neste registro" : String(registro.nota).replace(".", ",")) + "</dl>");
 

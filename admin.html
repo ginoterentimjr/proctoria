@@ -168,7 +168,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
   function telaProva(id) {
     menu("provas"); limparTemporizadores();
     (id ? api("GET", "/api/admin/provas/" + id) : Promise.resolve({ titulo: "", duracaoMin: 60, instrucoes: "", consulta: "nenhuma", textoConsulta: "", ordemAleatoria: true, embaralharAlternativas: true, inicioEm: null, fimEm: null,
-      regras: { limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 0, gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true, avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10 } })).then(function (p) {
+      regras: { limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10, ausenciaSeg: 10, identidadeDocumento: true, navegador: "comum", sebConferirChave: true, sebChaveManual: "", gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true, avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10 } })).then(function (p) {
       var r = p.regras, local = function (iso) { if (!iso) return ""; var d = new Date(iso); return d.getFullYear() + "-" + dois(d.getMonth() + 1) + "-" + dois(d.getDate()) + "T" + dois(d.getHours()) + ":" + dois(d.getMinutes()); };
       var e = {
         titulo: h("input", { type: "text", value: p.titulo, maxlength: "200", required: true }), duracao: h("input", { type: "number", min: "1", max: "600", value: p.duracaoMin }),
@@ -177,13 +177,27 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
         ordem: h("input", { type: "checkbox", checked: p.ordemAleatoria }), embaralhar: h("input", { type: "checkbox", checked: p.embaralharAlternativas }),
         inicio: h("input", { type: "datetime-local", value: local(p.inicioEm) }), fim: h("input", { type: "datetime-local", value: local(p.fimEm) }),
         limite: h("input", { type: "number", min: "0", max: "20", value: r.limiteSuspensoes }), aviso: h("input", { type: "number", min: "0.5", max: "30", step: "0.5", value: r.avisoSeg }), susp: h("input", { type: "number", min: "1", max: "60", step: "0.5", value: r.suspensaoSeg }),
-        semPausas: h("input", { type: "number", min: "0", max: "300", value: r.semPausasSeg }), queda: h("input", { type: "number", min: "1", max: "120", value: r.quedaMaximaMin }),
+        ausencia: h("input", { type: "number", min: "3", max: "300", value: r.semPausasSeg > 0 ? r.semPausasSeg : (r.ausenciaSeg || 10) }),
+        ausenciaAcao: h("select", null, [h("option", { value: "invalidar", text: "Invalidar a prova (prova sem pausas)" }), h("option", { value: "suspender", text: "Suspender a prova" })]),
+        documento: h("input", { type: "checkbox", checked: r.identidadeDocumento !== false }), queda: h("input", { type: "number", min: "1", max: "120", value: r.quedaMaximaMin }),
         vida: h("select", null, [h("option", { value: "registrar", text: "Aplicar; se não concluída, prosseguir com registro" }), h("option", { value: "obrigatoria", text: "Obrigatória para iniciar" }), h("option", { value: "nao", text: "Não aplicar" })]),
         identidade: h("input", { type: "checkbox", checked: r.identidade }), varredura: h("input", { type: "checkbox", checked: r.varreduraAmbiente }),
         tela: h("input", { type: "checkbox", checked: r.gravarTela }), camera: h("input", { type: "checkbox", checked: r.gravarCamera }), inteira: h("input", { type: "checkbox", checked: r.exigirTelaInteiraCompartilhada }),
-        calc: h("input", { type: "checkbox", checked: r.calculadora }), rasc: h("input", { type: "checkbox", checked: r.rascunho })
+        calc: h("input", { type: "checkbox", checked: r.calculadora }), rasc: h("input", { type: "checkbox", checked: r.rascunho }),
+        navegador: h("select", null, [h("option", { value: "comum", text: "Navegador comum: Google Chrome ou Microsoft Edge" }), h("option", { value: "seb", text: "Somente o Safe Exam Browser" }), h("option", { value: "ambos", text: "Os dois: o participante escolhe" })]),
+        sebConferir: h("input", { type: "checkbox", checked: r.sebConferirChave !== false }), sebChave: h("input", { type: "text", value: r.sebChaveManual || "", maxlength: "64", spellcheck: "false", autocomplete: "off" })
       };
-      e.consulta.value = p.consulta; e.vida.value = r.provaDeVida;
+      e.consulta.value = p.consulta; e.vida.value = r.provaDeVida; e.navegador.value = r.navegador || "comum"; e.ausenciaAcao.value = r.semPausasSeg > 0 ? "invalidar" : "suspender";
+      var alternarDocumento = function () { e.documento.disabled = !e.identidade.checked; };
+      e.identidade.addEventListener("change", alternarDocumento); alternarDocumento();
+      var blocoSEB = h("div", { style: "display:grid;gap:14px;margin-top:14px" }, [
+        marcar("Conferir, a cada acesso, se o Safe Exam Browser utiliza a configuração entregue por este servidor", e.sebConferir),
+        campo("Config Key exibida pelo Safe Exam Browser (opcional)", e.sebChave, "Preencha apenas se a configuração for alterada no próprio Safe Exam Browser. Em branco, vale a chave calculada pelo servidor."),
+        h("div", { class: "acoes" }, h("a", { class: "botao sec menor", href: "/api/seb/config.seb", text: "Baixar a configuração do Safe Exam Browser" })),
+        h("p", { class: "nota", style: "margin:0", text: "No Safe Exam Browser, o próprio programa ocupa a tela inteira e impede a troca de aplicativo; a engine mantém câmera, microfone, olhar, voz, gravações e registro. O participante abre a prova pelo endereço recebido, que apresenta o botão de abertura no Safe Exam Browser." })
+      ]);
+      var alternarSEB = function () { blocoSEB.hidden = e.navegador.value === "comum"; };
+      e.navegador.addEventListener("change", alternarSEB); alternarSEB();
       var blocoTexto = campo("Texto de consulta", e.texto), blocoPdf = campo("Arquivo PDF de consulta", e.pdf, id ? "Selecione um arquivo para enviar ou substituir o material atual. Até 30 MB." : "O envio fica disponível depois de salvar a prova.");
       var alternar = function () { blocoTexto.hidden = e.consulta.value !== "texto"; blocoPdf.hidden = e.consulta.value !== "pdf"; };
       e.consulta.addEventListener("change", alternar); alternar();
@@ -196,10 +210,14 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
           h("p", { class: "nota", text: "O material de consulta aparece dentro da janela da prova, para que o participante não precise sair dela." })]),
         h("div", { class: "grupo" }, [h("h2", { text: "Aplicação" }), h("div", { class: "grade" }, [campo("Abertura (opcional)", e.inicio), campo("Encerramento da janela de aplicação (opcional)", e.fim)]),
           marcar("Sortear a ordem das questões para cada participante", e.ordem), marcar("Embaralhar as alternativas de cada questão", e.embaralhar)]),
+        h("div", { class: "grupo" }, [h("h2", { text: "Navegador da prova" }), campo("Navegador aceito", e.navegador), blocoSEB]),
         h("div", { class: "grupo" }, [h("h2", { text: "Fiscalização" }),
           h("div", { class: "grade" }, [campo("Suspensões até o bloqueio (0 para não bloquear)", e.limite), campo("Olhar ou rosto fora: segundos até a advertência", e.aviso), campo("Segundos adicionais até a suspensão", e.susp),
-            campo("Sem pausas: segundos de rosto fora da imagem que invalidam a prova (0 para desligar)", e.semPausas), campo("Interrupção máxima, em minutos, antes de exigir liberação", e.queda), campo("Prova de vida", e.vida)]),
-          marcar("Registrar a identidade: foto do rosto e do documento", e.identidade), marcar("Varredura do ambiente: quatro imagens com a câmera antes do início", e.varredura),
+            campo("Interrupção máxima, em minutos, antes de exigir liberação", e.queda), campo("Prova de vida", e.vida)]),
+          h("h3", { text: "Ausência diante da câmera", style: "margin:22px 0 10px" }),
+          h("div", { class: "grade" }, [campo("Tolerância para ausência, em segundos", e.ausencia, "Tempo máximo com o rosto fora da imagem. A advertência aparece antes, com a contagem na tela do participante."), campo("Ao esgotar a tolerância", e.ausenciaAcao)]),
+          h("h3", { text: "Identidade e ambiente", style: "margin:22px 0 10px" }),
+          marcar("Registrar a identidade: foto do rosto antes da prova", e.identidade), marcar("Exigir também a foto do documento de identificação", e.documento), marcar("Varredura do ambiente: quatro imagens com a câmera antes do início", e.varredura),
           marcar("Exigir o compartilhamento da tela inteira", e.inteira), marcar("Gravar a tela e o áudio durante toda a sessão", e.tela), marcar("Gravar a câmera durante toda a sessão", e.camera)]),
         h("div", { class: "grupo" }, [h("h2", { text: "Recursos na tela da prova" }), marcar("Calculadora", e.calc), marcar("Rascunho", e.rasc)]),
         h("div", { class: "acoes", style: "margin-top:26px" }, [h("button", { class: "botao", type: "submit", text: "Salvar a prova" }),
@@ -210,7 +228,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
         ev.preventDefault(); aviso.className = "nota"; aviso.textContent = "Salvando.";
         var dados = { titulo: e.titulo.value.trim(), duracaoMin: Number(e.duracao.value), instrucoes: e.instrucoes.value, consulta: e.consulta.value, textoConsulta: e.texto.value, ordemAleatoria: e.ordem.checked, embaralharAlternativas: e.embaralhar.checked,
           inicioEm: e.inicio.value ? new Date(e.inicio.value).toISOString() : null, fimEm: e.fim.value ? new Date(e.fim.value).toISOString() : null,
-          regras: { limiteSuspensoes: Number(e.limite.value), avisoSeg: Number(e.aviso.value), suspensaoSeg: Number(e.susp.value), semPausasSeg: Number(e.semPausas.value), quedaMaximaMin: Number(e.queda.value), provaDeVida: e.vida.value,
+          regras: { limiteSuspensoes: Number(e.limite.value), avisoSeg: Number(e.aviso.value), suspensaoSeg: Number(e.susp.value), semPausasSeg: e.ausenciaAcao.value === "invalidar" ? Number(e.ausencia.value) : 0, ausenciaSeg: Number(e.ausencia.value), identidadeDocumento: e.documento.checked, navegador: e.navegador.value, sebConferirChave: e.sebConferir.checked, sebChaveManual: e.sebChave.value.trim(), quedaMaximaMin: Number(e.queda.value), provaDeVida: e.vida.value,
             identidade: e.identidade.checked, varreduraAmbiente: e.varredura.checked, gravarTela: e.tela.checked, gravarCamera: e.camera.checked, exigirTelaInteiraCompartilhada: e.inteira.checked, calculadora: e.calc.checked, rascunho: e.rasc.checked } };
         (id ? api("PUT", "/api/admin/provas/" + id, dados) : api("POST", "/api/admin/provas", dados)).then(function (salva) {
           var arquivo = e.pdf.files && e.pdf.files[0];
@@ -283,9 +301,10 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
       if (!lista.length) corpo.appendChild(h("tr", null, h("td", { colspan: "5", class: "nota", text: "Nenhum participante cadastrado para esta prova." })));
       lista.forEach(function (c) {
         var bc = h("button", { class: "botao sec menor", type: "button", text: "Copiar o endereço", onclick: function () { copiar(c.endereco, bc); } });
+        var bs = p.navegador && p.navegador !== "comum" ? h("button", { class: "botao sec menor", type: "button", text: "Copiar o endereço direto do Safe Exam Browser", onclick: function () { copiar(c.enderecoSEB, bs); } }) : null;
         corpo.appendChild(h("tr", null, [h("td", null, [h("strong", { text: c.nome, style: "font:600 18px/1.3 var(--titulo)" }), c.email ? h("br") : null, c.email ? h("span", { class: "nota", text: c.email }) : null]),
           h("td", { text: c.alunoId }), h("td", { text: c.origem === "pionira" ? "Pionira" : "Administrador" }), h("td", { text: c.situacao }),
-          h("td", null, h("div", { class: "acoes" }, [bc, !c.sessao ? h("button", { class: "botao sec menor", type: "button", text: "Excluir", onclick: function () { api("DELETE", "/api/admin/provas/" + id + "/convites/" + c.codigo).then(desenhar, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); } }) : null]))]));
+          h("td", null, h("div", { class: "acoes" }, [bc, bs, !c.sessao ? h("button", { class: "botao sec menor", type: "button", text: "Excluir", onclick: function () { api("DELETE", "/api/admin/provas/" + id + "/convites/" + c.codigo).then(desenhar, function (e) { aviso.className = "alerta"; aviso.textContent = e.message; }); } }) : null]))]));
       });
     }
     var nome = h("input", { type: "text", maxlength: "200" }), email = h("input", { type: "email", maxlength: "200" }), ident = h("input", { type: "text", maxlength: "120" });
@@ -340,7 +359,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
       c = cartoes[s.id] = {};
       c.selo = h("span", { class: "selo" }); c.cam = h("img", { alt: "Câmera do participante" }); c.tela = h("img", { class: "tela", alt: "Tela do participante" });
       c.m = {}; var dl = h("dl", { class: "medidas" });
-      [["tempo", "Tempo restante"], ["questao", "Questão"], ["resp", "Respondidas"], ["susp", "Suspensões"], ["adv", "Advertências"], ["quedas", "Interrupções"]].forEach(function (x) { c.m[x[0]] = h("dd"); dl.appendChild(h("div", null, [h("dt", { text: x[1] }), c.m[x[0]]])); });
+      [["tempo", "Tempo restante"], ["questao", "Questão"], ["resp", "Respondidas"], ["susp", "Suspensões"], ["adv", "Advertências"], ["quedas", "Interrupções"], ["nav", "Navegador"]].forEach(function (x) { c.m[x[0]] = h("dd"); dl.appendChild(h("div", null, [h("dt", { text: x[1] }), c.m[x[0]]])); });
       c.alertas = h("ul"); c.aviso = status("");
       c.bMsg = h("button", { class: "botao sec menor", type: "button", onclick: function () { abrirConversa(s.id, s.aluno.nome); } });
       c.bLib = h("button", { class: "botao menor", type: "button", text: "Liberar o bloqueio", onclick: function () { comando(s.id, "liberar", c); } });
@@ -360,6 +379,7 @@ code.chave{font:500 15px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
     c.m.questao.textContent = s.questaoAtual ? s.questaoAtual + " de " + s.totalQuestoes : "";
     c.m.resp.textContent = s.totalQuestoes ? s.respondidas + " de " + s.totalQuestoes : "";
     c.m.susp.textContent = String(s.suspensoes); c.m.adv.textContent = String(s.advertencias); c.m.quedas.textContent = String(s.quedas);
+    c.m.nav.textContent = s.navegador && s.navegador.tipo === "seb" ? "Safe Exam Browser" + (s.navegador.conferida === true ? ", conferido" : s.navegador.conferida === false ? ", sem conferência positiva" : "") : "Comum";
     c.alertas.textContent = "";
     (s.alertas || []).slice(0, 4).forEach(function (a) { c.alertas.appendChild(h("li", { class: a.classe, text: (s.inicioProvaT !== null && s.inicioProvaT !== undefined && a.t >= s.inicioProvaT ? relogio(a.t - s.inicioProvaT) + " " : "") + a.titulo })); });
     c.bMsg.textContent = "Mensagens" + (s.naoLidas ? " (" + s.naoLidas + " nova" + (s.naoLidas > 1 ? "s" : "") + ")" : "");

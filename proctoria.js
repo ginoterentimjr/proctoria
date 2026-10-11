@@ -1,8 +1,8 @@
-/*! Proctoria 0.4.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.5.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.4.0";
+  var VERSAO = "0.5.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",
@@ -15,10 +15,12 @@
     exigirMonitorUnico: true,
     exigirJanelaMaximizada: true, // fora da tela cheia, a janela ocupa toda a área útil da tela
     recusarCameraVirtual: true,   // programas que simulam câmera com vídeo gravado
-    identidade: true,             // fotos do rosto e do documento antes da prova
+    identidade: true,             // foto do rosto antes da prova
+    identidadeDocumento: true,    // com a identidade ligada, pede também a foto do documento
     provaDeVida: "registrar",     // "obrigatoria", "registrar" (permite prosseguir depois de 45 s, com registro) ou "nao"
     varreduraAmbiente: false,     // fotos do ambiente com a câmera, antes da prova
     semPausasSeg: 0,              // maior que zero: rosto fora da imagem por esse tempo invalida a prova
+    ambienteSEB: false,           // prova aberta no Safe Exam Browser: tela cheia e janela ficam a cargo dele
     semPiscadasSeg: 60,           // sinal para revisão: nenhuma piscada nesse intervalo (imagem estática)
     trechoGravacaoMs: 4000,
     limiteSuspensoes: 3,          // na suspensão deste número a prova fica bloqueada até a liberação do administrador; 0 = sem bloqueio
@@ -337,6 +339,10 @@
     Object.keys(REGRAS_PADRAO.sinais).forEach(function (k) {
       eu.regras.sinais[k] = Object.assign({}, REGRAS_PADRAO.sinais[k], sinaisCfg[k] || {});
     });
+    if (this.regras.ambienteSEB) {   // o Safe Exam Browser já ocupa a tela inteira e impede a troca de aplicativo
+      this.regras.exigirTelaCheia = false; this.regras.exigirJanelaMaximizada = false;
+      this._semTela = !(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+    }
     this.recursos = Object.assign({}, RECURSOS_PADRAO, cfg.recursos || {});
     this.aluno = cfg.aluno || { id: "sem-id", nome: "" };
     this.prova = cfg.prova || { id: "sem-id", titulo: "" };
@@ -463,11 +469,17 @@
       ["microfone", "Microfone ativo e captando voz"]
     ];
     this._passos = ["midia"];
-    if (r.identidade) { definicoes.push(["identidade", "Identidade registrada: rosto e documento"]); this._passos.push("foto_rosto", "foto_documento"); }
+    if (r.identidade) {
+      definicoes.push(["identidade", r.identidadeDocumento ? "Identidade registrada: rosto e documento" : "Identidade registrada: foto do rosto"]);
+      this._passos.push("foto_rosto"); if (r.identidadeDocumento) this._passos.push("foto_documento");
+    }
     if (r.provaDeVida !== "nao") { definicoes.push(["vida", "Prova de vida"]); this._passos.push("vida"); }
     if (r.varreduraAmbiente) { definicoes.push(["varredura", "Ambiente registrado pela câmera"]); this._passos.push("varredura"); }
-    definicoes.push(["tela", "Tela inteira compartilhada"], ["ambiente", "Área de trabalho declarada e registrada"]);
-    this._passos.push("tela", "ambiente", "calibrar");
+    if (this._semTela) { this._telaOk = true; this._ambienteOk = true; this._passos.push("calibrar"); }
+    else {
+      definicoes.push(["tela", "Tela inteira compartilhada"], ["ambiente", "Área de trabalho declarada e registrada"]);
+      this._passos.push("tela", "ambiente", "calibrar");
+    }
     var lista = el("ol", { class: "pct-lista" });
     definicoes.forEach(function (d) {
       var li = el("li", { "data-estado": "pendente" }, [
@@ -520,11 +532,14 @@
     ]);
     document.body.appendChild(this._camada);
 
-    var compativel = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && navigator.mediaDevices.getDisplayMedia &&
-      document.documentElement.requestFullscreen && global.MediaRecorder && ("isExtended" in global.screen));
+    var midia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && global.MediaRecorder);
+    var compativel = this.regras.ambienteSEB ? midia : !!(midia && navigator.mediaDevices.getDisplayMedia &&
+      document.documentElement.requestFullscreen && ("isExtended" in global.screen));
     this._compativel = compativel;
     this._item("navegador", compativel ? "conforme" : "nao",
-      compativel ? "" : "Utilize o Google Chrome ou o Microsoft Edge em um computador.");
+      compativel ? "" : this.regras.ambienteSEB ? "Atualize o Safe Exam Browser para a versão mais recente." : "Utilize o Google Chrome ou o Microsoft Edge em um computador.");
+    if (this._semTela) this._evento("sistema", "tela_indisponivel", "Compartilhamento de tela indisponível no Safe Exam Browser",
+      "Esta versão do Safe Exam Browser não oferece o compartilhamento de tela à página. A sessão segue com câmera, microfone e registro.");
     if (!compativel) this._botao.disabled = true;
 
     if (this.regras.exigirJanelaMaximizada) maximizarJanela();
@@ -662,7 +677,7 @@
       texto = "Feche as demais abas, os outros navegadores e os aplicativos alheios à prova. Ao confirmar, a imagem da tela neste instante fica registrada para a auditoria.";
     }
     else if (e === "calibrar") {
-      b.textContent = "Entrar em tela cheia e calibrar o olhar";
+      b.textContent = r.exigirTelaCheia ? "Entrar em tela cheia e calibrar o olhar" : "Calibrar o olhar";
       var tudo = this._monitorUnico() && janela && this._rostoOk && this._micOk && this._telaOk && this._ambienteOk && this._trilhaViva(this._camStream, "video");
       b.disabled = !tudo || ocupado;
       texto = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "Os itens em verificação precisam estar conformes para prosseguir.";
@@ -685,7 +700,7 @@
     var fim = function () { eu._ocupado = false; eu._atualizarVerificacao(); };
     if (e === "midia") this._abrirMidia().then(function (ok) { if (ok) eu._avancar(); }).then(fim, fim);
     else if (e === "foto_rosto") {
-      if (this._fotografar("identidade_rosto", "Foto do rosto registrada")) this._avancar();
+      if (this._fotografar("identidade_rosto", "Foto do rosto registrada")) { if (!r.identidadeDocumento) this._item("identidade", "conforme", ""); this._avancar(); }
       fim();
     }
     else if (e === "foto_documento") {
@@ -813,7 +828,8 @@
     }).then(function (stream) {
       var trilha = stream.getVideoTracks()[0];
       var superficie = (trilha.getSettings() || {}).displaySurface;
-      if (eu.regras.exigirTelaInteiraCompartilhada && superficie !== "monitor") {
+      var telaInteira = superficie === "monitor" || (eu.regras.ambienteSEB && !superficie);
+      if (eu.regras.exigirTelaInteiraCompartilhada && !telaInteira) {
         trilha.stop();
         if (eu._itens) eu._item("tela", "nao", "Foi compartilhada uma janela ou uma aba. Na janela do navegador, selecione a opção Tela inteira.");
         eu._evento("sistema", "tela_recusada", "Compartilhamento recusado pela engine", "Superfície compartilhada: " + (superficie || "não informada"));
@@ -840,7 +856,7 @@
 
   Sessao.prototype._entrarTelaCheia = function () {
     var eu = this;
-    if (document.fullscreenElement) return Promise.resolve();
+    if (!this.regras.exigirTelaCheia || document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve();
     return document.documentElement.requestFullscreen({ navigationUI: "hide" }).then(function () {
       if (navigator.keyboard && navigator.keyboard.lock) {
         navigator.keyboard.lock().then(function () { eu._tecladoRetido = true; }, function () { eu._tecladoRetido = false; });
@@ -1066,13 +1082,14 @@
     this._vozEvento = reg;
     this._advertir("voz", ev);
     try {
-      var rec = new MediaRecorder(new MediaStream(this._camStream.getAudioTracks()), { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 24000 });
+      var mimeVoz = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].filter(function (m) { return MediaRecorder.isTypeSupported(m); })[0] || "";
+      var rec = new MediaRecorder(new MediaStream(this._camStream.getAudioTracks()), { mimeType: mimeVoz, audioBitsPerSecond: 24000 });
       var partes = [];
       rec.ondataavailable = function (e) { if (e.data && e.data.size) partes.push(e.data); };
       rec.onstop = function () {
         var leitor = new FileReader();
         leitor.onload = function () { ev.evidencias = ev.evidencias || {}; ev.evidencias.audio = leitor.result; };
-        leitor.readAsDataURL(new Blob(partes, { type: "audio/webm" }));
+        leitor.readAsDataURL(new Blob(partes, { type: /mp4/.test(mimeVoz) ? "audio/mp4" : "audio/webm" }));
       };
       rec.start();
       reg.rec = rec;
@@ -1523,7 +1540,7 @@
     var r = this.regras, lista = [
       { id: "camera", texto: "Câmera ativa", ok: this._trilhaViva(this._camStream, "video") },
       { id: "microfone", texto: "Microfone ativo", ok: this._trilhaViva(this._camStream, "audio") },
-      { id: "tela", texto: "Tela inteira compartilhada", ok: this._trilhaViva(this._telaStream, "video", true) },
+      { id: "tela", texto: "Tela inteira compartilhada", ok: !!this._semTela || this._trilhaViva(this._telaStream, "video", true) },
       { id: "foco", texto: "Janela da prova em primeiro plano", ok: document.hasFocus() && !document.hidden }
     ];
     if (r.exigirMonitorUnico) lista.push({ id: "monitor", texto: "Um único monitor conectado", ok: this._monitorUnico() });
@@ -1719,12 +1736,12 @@
       var origem = tipo === "tela" ? this._telaStream : this._camStream;
       if (!origem || !this._trilhaViva(origem, "video", true)) return;
       var trilhas = origem.getVideoTracks().concat(this._camStream.getAudioTracks());
-      var mimes = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+      var mimes = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4"];
       var mime = mimes.filter(function (m) { return MediaRecorder.isTypeSupported(m); })[0] || "";
       var rec = new MediaRecorder(new MediaStream(trilhas), {
         mimeType: mime, videoBitsPerSecond: tipo === "tela" ? 350000 : 200000, audioBitsPerSecond: 24000
       });
-      var g = { tipo: tipo, inicioT: this._agora(), fimT: null, partes: [], bytes: 0, mime: mime || "video/webm", rec: rec };
+      var g = { tipo: tipo, inicioT: this._agora(), fimT: null, partes: [], bytes: 0, mime: mime || rec.mimeType || "video/webm", rec: rec };
       rec.ondataavailable = function (e) {
         if (!e.data || !e.data.size) return;
         g.partes.push(e.data); g.bytes += e.data.size;
@@ -1840,8 +1857,8 @@
       ["tela", "camera"].forEach(function (tipo) {
         eu._gravacoes[tipo].forEach(function (g, i) {
           if (!g.partes.length) return;
-          var nome = base + "_" + tipo + "_" + (i + 1) + ".webm";
-          arquivos.push({ nome: nome, tipo: tipo, blob: new Blob(g.partes, { type: "video/webm" }) });
+          var mp4 = /mp4/.test(g.mime), nome = base + "_" + tipo + "_" + (i + 1) + (mp4 ? ".mp4" : ".webm");
+          arquivos.push({ nome: nome, tipo: tipo, blob: new Blob(g.partes, { type: mp4 ? "video/mp4" : "video/webm" }) });
           gravacoes[tipo].push({ arquivo: nome, inicioT: g.inicioT, fimT: g.fimT === null ? fimT : g.fimT, bytes: g.bytes, mime: g.mime });
         });
       });
@@ -1854,7 +1871,7 @@
         situacao: situacao, criadaEm: eu._criadaEm,
         inicioProvaT: eu._inicioProvaT === undefined ? null : eu._inicioProvaT, fimT: fimT,
         ambiente: {
-          navegador: navigator.userAgent, idioma: navigator.language,
+          navegador: navigator.userAgent, idioma: navigator.language, safeExamBrowser: !!eu.regras.ambienteSEB,
           fuso: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || "",
           tela: { largura: global.screen.width, altura: global.screen.height, densidade: global.devicePixelRatio },
           superficieCompartilhada: eu._superficie || null, tecladoRetido: eu._tecladoRetido,
