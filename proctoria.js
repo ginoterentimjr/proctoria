@@ -1,8 +1,8 @@
-/*! Proctoria 0.2.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.3.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.2.0";
+  var VERSAO = "0.3.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",
@@ -13,6 +13,7 @@
     exigirTelaCheia: true,
     exigirTelaInteiraCompartilhada: true,
     exigirMonitorUnico: true,
+    exigirJanelaMaximizada: true, // fora da tela cheia, a janela ocupa toda a área útil da tela
     limiteSuspensoes: 3,          // na suspensão deste número a prova fica bloqueada até a liberação do administrador; 0 = sem bloqueio
     liberacaoHash: null,          // SHA-256 do código de liberação (Proctoria.resumoSHA256); nulo = liberação apenas por sessao.liberar()
     /* Cada sinal: advertência depois de avisoSeg contínuos; suspensão se persistir por mais suspensaoSeg;
@@ -48,6 +49,8 @@
     camera: "Câmera interrompida",
     microfone: "Microfone interrompido",
     monitor: "Monitor adicional conectado",
+    janela_oculta: "Janela da prova minimizada ou encoberta",
+    janela_redimensionada: "Janela da prova redimensionada",
     olhar_fora: "Olhar mantido fora da tela",
     cabeca_fora: "Cabeça mantida fora da tela",
     rosto_ausente: "Rosto mantido fora da imagem",
@@ -90,6 +93,17 @@
 
   function limitar(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function arred(x, casas) { var p = Math.pow(10, casas || 0); return Math.round(x * p) / p; }
+  /* A página não consegue impedir que a janela seja minimizada ou redimensionada: ela confere o tamanho,
+     restaura quando o navegador permite (janela aberta por script) e suspende a prova. */
+  function janelaMaximizada() {
+    if (document.fullscreenElement) return true;
+    var t = global.screen, folga = 24;
+    return global.outerWidth >= t.availWidth - folga && global.outerHeight >= t.availHeight - folga;
+  }
+  function maximizarJanela() {
+    var t = global.screen;
+    try { global.moveTo(t.availLeft || 0, t.availTop || 0); global.resizeTo(t.availWidth, t.availHeight); } catch (e) {}
+  }
   function segundos(ms) { return (ms / 1000).toFixed(1).replace(".", ",") + " segundos"; }
   function relogioCurto(ms) { var t = Math.max(0, Math.round(ms / 1000)), m = Math.floor(t / 60), r = t % 60; return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r; }
   function resumoSHA256(texto) {
@@ -408,6 +422,7 @@
     var definicoes = [
       ["navegador", "Navegador compatível"],
       ["monitor", "Um único monitor conectado"],
+      ["janela", "Janela da prova maximizada"],
       ["camera", "Câmera ativa"],
       ["rosto", "Um rosto identificado na imagem"],
       ["microfone", "Microfone ativo e captando voz"],
@@ -462,6 +477,8 @@
       compativel ? "" : "Utilize o Google Chrome ou o Microsoft Edge em um computador.");
     if (!compativel) this._botao.disabled = true;
 
+    if (this.regras.exigirJanelaMaximizada) maximizarJanela();
+    this._janelaOk = true;
     this._vozAcumuladaMs = 0; this._rostoDesde = null;
     this._tickVerif = setInterval(function () { eu._atualizarVerificacao(); }, 200);
     this._atualizarVerificacao();
@@ -482,6 +499,14 @@
     var s = this._sinais, agora = performance.now(), b = this._botao;
     this._item("monitor", this._monitorUnico() ? "conforme" : "nao",
       this._monitorUnico() ? "" : "Desconecte o monitor adicional e mantenha apenas a tela principal.");
+    var janela = !this.regras.exigirJanelaMaximizada || janelaMaximizada();
+    if (!janela && this._janelaOk) {
+      this._evento("sistema", "janela_verificacao", "Janela da prova redimensionada durante a verificação",
+        "Janela com " + global.outerWidth + " x " + global.outerHeight + " em tela de " + global.screen.availWidth + " x " + global.screen.availHeight + ".");
+    }
+    if (!janela) maximizarJanela();
+    this._janelaOk = janela;
+    this._item("janela", janela ? "conforme" : "nao", janela ? "" : "Maximize a janela da prova: ela precisa ocupar a tela inteira.");
 
     if (this._camStream) {
       this._item("camera", this._trilhaViva(this._camStream, "video") ? "conforme" : "nao");
@@ -521,7 +546,7 @@
     }
     else if (this._etapa === "calibrar") {
       b.textContent = "Entrar em tela cheia e calibrar o olhar";
-      var tudo = this._monitorUnico() && this._rostoOk && this._micOk && this._telaOk && this._ambienteOk && this._trilhaViva(this._camStream, "video");
+      var tudo = this._monitorUnico() && janela && this._rostoOk && this._micOk && this._telaOk && this._ambienteOk && this._trilhaViva(this._camStream, "video");
       b.disabled = !tudo || !!this._ocupado;
       this._aviso.textContent = tudo ? "Se a barra de compartilhamento do navegador estiver visível, selecione Ocultar antes de prosseguir." : "Os itens em verificação precisam estar conformes para prosseguir.";
     }
@@ -1021,6 +1046,7 @@
     var r = this.regras;
     if (r.exigirTelaCheia && !document.fullscreenElement) this._suspender("tela_cheia", "A prova foi iniciada fora da tela cheia.");
     if (!this._monitorUnico()) this._suspender("monitor", "Há um monitor adicional conectado.");
+    if (r.exigirJanelaMaximizada && !janelaMaximizada()) this._suspender("janela_redimensionada", "A prova foi iniciada com a janela fora do tamanho da tela.");
     if (!document.hasFocus()) this._suspender("foco", "A janela da prova não estava em primeiro plano no início.");
   };
 
@@ -1054,17 +1080,24 @@
     var eu = this;
     this._ouvir(global, "blur", function () {
       setTimeout(function () {
-        if (!document.hasFocus() && !eu._ocupado) eu._suspender("foco", document.hidden ? "A aba da prova deixou de estar visível." : "Outra janela ou outro aplicativo recebeu o foco.");
+        if (document.hasFocus() || eu._ocupado) return;
+        if (document.hidden) eu._suspender("janela_oculta", "A janela da prova foi minimizada ou encoberta por outra.");
+        else eu._suspender("foco", "Outra janela ou outro aplicativo recebeu o foco.");
       }, 200);
     });
     this._ouvir(document, "visibilitychange", function () {
-      if (document.hidden && !eu._ocupado) eu._suspender("foco", "A aba da prova deixou de estar visível.");
+      if (document.hidden && !eu._ocupado) eu._suspender("janela_oculta", "A janela da prova foi minimizada ou encoberta por outra.");
     });
     this._ouvir(document, "fullscreenchange", function () {
       if (!document.fullscreenElement && eu.regras.exigirTelaCheia) eu._suspender("tela_cheia", "A tela cheia foi encerrada.");
     });
     this._temporizadores.push(setInterval(function () {
       if (!eu._monitorUnico()) eu._suspender("monitor", "Um monitor adicional foi conectado.");
+      if (eu.regras.exigirJanelaMaximizada && !eu._ocupado && !janelaMaximizada()) {
+        eu._janelaFalhas = (eu._janelaFalhas || 0) + 1;
+        if (eu._janelaFalhas >= 2) eu._suspender("janela_redimensionada",
+          "Janela com " + global.outerWidth + " x " + global.outerHeight + " em tela de " + global.screen.availWidth + " x " + global.screen.availHeight + ".");
+      } else eu._janelaFalhas = 0;
       if (!document.hasFocus() && !eu._suspensao) eu._suspender("foco", "A janela da prova não está em primeiro plano.");
     }, 1500));
     if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
@@ -1273,6 +1306,7 @@
       { id: "foco", texto: "Janela da prova em primeiro plano", ok: document.hasFocus() && !document.hidden }
     ];
     if (r.exigirMonitorUnico) lista.push({ id: "monitor", texto: "Um único monitor conectado", ok: this._monitorUnico() });
+    if (r.exigirJanelaMaximizada) lista.push({ id: "janela", texto: "Janela da prova maximizada", ok: janelaMaximizada() });
     if (this._detector) lista.push({ id: "rosto", texto: "Um rosto identificado na imagem", ok: (this._sinais.rostos || 0) === 1 });
     return lista;
   };
@@ -1378,10 +1412,11 @@
       ]));
     });
     var por = {}; cond.forEach(function (c) { por[c.id] = c.ok; });
+    if (por.janela === false && !this._ocupado) maximizarJanela();
     var proxima = !por.camera || !por.microfone ? "midia" : !por.tela ? "tela" : "retomar";
     this._susProxima = proxima;
     this._susBotao.textContent = proxima === "midia" ? "Reativar câmera e microfone" : proxima === "tela" ? "Compartilhar novamente a tela inteira" : "Retomar a prova";
-    this._susBotao.disabled = !!this._ocupado || (proxima === "retomar" && (por.monitor === false || por.rosto === false));
+    this._susBotao.disabled = !!this._ocupado || (proxima === "retomar" && (por.monitor === false || por.rosto === false || por.janela === false));
   };
 
   Sessao.prototype._acaoRetomar = function () {

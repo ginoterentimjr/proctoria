@@ -1,8 +1,8 @@
-# Proctoria v0.2
+# Proctoria v0.3
 
 Engine de fiscalização de prova on-line para navegador, com página de demonstração e painel de auditoria.
 
-Demonstração: https://ginoterentimjr.github.io/proctoria/ (versão anterior em https://ginoterentimjr.github.io/proctoria/v0.1/)
+Demonstração: https://ginoterentimjr.github.io/proctoria/ (versões anteriores em https://ginoterentimjr.github.io/proctoria/v0.2/ e https://ginoterentimjr.github.io/proctoria/v0.1/)
 
 ## Arquivos
 
@@ -50,7 +50,9 @@ Olhar, cabeça, rosto e voz seguem a mesma progressão, com tempos ajustáveis p
 2. **Suspensão** se a condição continuar por mais `suspensaoSeg` (4 s para olhar, cabeça e voz; 3 s para rosto), ou na advertência de número `reincidencia` do mesmo sinal em `reincidenciaJanelaMin` minutos.
 3. **Bloqueio** na suspensão de número `limiteSuspensoes`: a retomada depende do administrador, por código na tela do participante ou por `sessao.liberar()`. A liberação reinicia a contagem.
 
-Saída da janela, saída da tela cheia, compartilhamento interrompido, câmera ou microfone interrompidos e monitor adicional suspendem de imediato, sem advertência.
+Saída da janela, janela minimizada, encoberta ou redimensionada, saída da tela cheia, compartilhamento interrompido, câmera ou microfone interrompidos e monitor adicional suspendem de imediato, sem advertência.
+
+A janela exclusiva abre ocupando toda a área útil da tela. A página não consegue impedir que ela seja minimizada ou redimensionada: confere o tamanho, restaura quando o navegador permite e suspende a prova.
 
 ## Classes de ocorrência
 

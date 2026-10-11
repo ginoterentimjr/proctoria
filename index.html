@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Proctoria v0.2</title>
+<title>Proctoria v0.3</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
@@ -78,7 +78,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
 </head>
 <body>
 <div class="pagina">
-  <header class="marca"><b>Proctoria</b><span>Versão 0.2 de demonstração</span></header>
+  <header class="marca"><b>Proctoria</b><span>Versão 0.3 de demonstração</span></header>
 
   <!-- INÍCIO -->
   <main id="v-inicio">
@@ -93,7 +93,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
       </ol>
       <div class="ficha" id="lancador">
         <h2>Janela exclusiva da prova</h2>
-        <p class="nota" style="margin:0">A prova abre em uma janela própria, sem outras abas. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
+        <p class="nota" style="margin:0">A prova abre em uma janela própria, maximizada e sem outras abas. Minimizar ou redimensionar essa janela suspende a prova. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
         <div class="acoes"><button class="botao" type="button" id="abrir-janela">Abrir a prova em janela exclusiva</button></div>
         <p class="alerta" id="aviso-janela" role="status" hidden></p>
       </div>
@@ -204,11 +204,16 @@ details>div{display:grid;gap:14px;margin-top:14px}
     $("lancador").hidden = true; $("ficha").hidden = false;
     if (aviso) { $("aviso-inicio").textContent = aviso; $("aviso-inicio").hidden = false; }
   }
-  if (EXCLUSIVA) mostrarFicha();
+  if (EXCLUSIVA) {
+    try { window.moveTo(screen.availLeft || 0, screen.availTop || 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch (e) {}
+    mostrarFicha();
+  }
   $("abrir-janela").addEventListener("click", function () {
-    var w = Math.min(1360, screen.availWidth - 80), h = Math.min(860, screen.availHeight - 80);
     var janela = null;
-    try { janela = window.open(location.pathname + location.search, "proctoria-prova", "popup=yes,width=" + w + ",height=" + h + ",left=40,top=40"); } catch (e) {}
+    try {
+      janela = window.open(location.pathname + location.search, "proctoria-prova",
+        "popup=yes,width=" + screen.availWidth + ",height=" + screen.availHeight + ",left=" + (screen.availLeft || 0) + ",top=" + (screen.availTop || 0));
+    } catch (e) {}
     if (!janela) { mostrarFicha("O navegador impediu a abertura da janela exclusiva. A prova prossegue nesta aba."); return; }
     $("abrir-janela").disabled = true;
     $("aviso-janela").textContent = "A prova foi aberta em uma janela exclusiva. Esta aba pode ser fechada.";
