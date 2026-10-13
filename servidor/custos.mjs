@@ -1,4 +1,4 @@
-/*! Proctoria 0.7.0 | consumo na Cloudflare: medição própria do servidor, estimativa em dólares e teto de gasto */
+/*! Proctoria 0.8.0 | consumo na Cloudflare: medição própria do servidor, estimativa em dólares e teto de gasto */
 
 /* Preços e franquias publicados pela Cloudflare (dólares americanos), conferidos em outubro de 2026.
    A Cloudflare não oferece limite de gasto para Workers, Durable Objects e R2: o teto é aplicado aqui,

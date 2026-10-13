@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Proctoria v0.7</title>
+<title>Proctoria v0.8</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
@@ -78,7 +78,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
 </head>
 <body>
 <div class="pagina">
-  <header class="marca"><b>Proctoria</b><span>Versão 0.7 de demonstração</span></header>
+  <header class="marca"><b>Proctoria</b><span>Versão 0.8 de demonstração</span></header>
 
   <!-- INÍCIO -->
   <main id="v-inicio">
@@ -133,6 +133,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
             <label class="marcar" for="r-tela-inteira"><input type="checkbox" id="r-tela-inteira" checked><span>Exigir o compartilhamento da tela inteira, recusando janela ou aba</span></label>
             <label class="marcar" for="r-gravar-tela"><input type="checkbox" id="r-gravar-tela" checked><span>Gravar a tela e o áudio durante toda a sessão</span></label>
             <label class="marcar" for="r-gravar-camera"><input type="checkbox" id="r-gravar-camera" checked><span>Gravar a câmera durante toda a sessão</span></label>
+            <label class="marcar" for="r-olhar"><input type="checkbox" id="r-olhar" checked><span>Mostrar na tela o ponto estimado do olhar</span></label>
             <label class="marcar" for="r-sinais"><input type="checkbox" id="r-sinais" checked><span>Exibir o painel de demonstração, com as leituras e os alertas ao vivo (oculto ao participante em uso real)</span></label>
           </div>
         </details>
@@ -264,7 +265,7 @@ details>div{display:grid;gap:14px;margin-top:14px}
         provaDeVida: $("r-vida").checked ? "registrar" : "nao",
         varreduraAmbiente: $("r-varredura").checked,
         semPausasSeg: Math.max(0, parseInt($("sem-pausas").value, 10) || 0),
-        mostrarSinais: $("r-sinais").checked
+        mostrarSinais: $("r-sinais").checked, mostrarOlhar: $("r-olhar").checked
       },
       aoEncerrar: function (res) { concluir(res); }
     });

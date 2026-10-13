@@ -1,9 +1,9 @@
-# Proctoria v0.7
+# Proctoria v0.8
 
 Fiscalização de prova on-line: engine para navegador, servidor, página da prova e módulo de administração.
 
 - Demonstração sem servidor: https://ginoterentimjr.github.io/proctoria/
-- Versões anteriores da demonstração: `/v0.6/`, `/v0.5/`, `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
+- Versões anteriores da demonstração: `/v0.7/`, `/v0.6/`, `/v0.5/`, `/v0.4/`, `/v0.3/`, `/v0.2/`, `/v0.1/`
 
 ## Componentes
 
@@ -45,6 +45,7 @@ Fiscalização de prova on-line: engine para navegador, servidor, página da pro
 | Navegador aceito | Navegador comum (Google Chrome ou Microsoft Edge), somente o Safe Exam Browser, ou os dois |
 | Identidade | Foto do rosto, com ou sem a foto do documento de identificação |
 | Ausência diante da câmera | Tolerância em segundos (padrão: 10) e a consequência ao esgotá-la: invalidar a prova (prova sem pausas) ou suspender |
+| Exibição ao participante | Ponto estimado do olhar e painel de leituras ao vivo, ligados ou desligados por prova (recomendado desligar em prova que vale nota) |
 | Demais regras | Suspensões até o bloqueio, tempos de advertência e suspensão, prova de vida, varredura do ambiente, gravações, calculadora e rascunho |
 
 ## Safe Exam Browser

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Proctoria v0.7</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@500;600&display=swap">
+<style>
+/* Página clara para leitura e prova; as camadas de verificação, calibragem e suspensão são escuras e pertencem à engine. */
+:root{
+  --fundo:#FAF5EC; --papel:#FFFDF8; --tinta:#1B1512; --tinta2:#5A4B40;
+  --laranja:#B04A1C; --laranja-vivo:#E5662C; --ouro:#C99A57; --linha:rgba(27,21,18,.16);
+  --titulo:Poppins,"Segoe UI",system-ui,sans-serif; --texto:Lora,Georgia,"Times New Roman",serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--fundo)}
+body{margin:0;background:var(--fundo);color:var(--tinta);font:400 19px/1.6 var(--texto)}
+.pagina{max-width:1080px;margin:0 auto;padding-inline:24px;padding-block:28px 72px}
+.marca{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;padding-bottom:18px;border-bottom:2px solid var(--tinta);margin-bottom:40px}
+.marca b{font:600 24px/1 var(--titulo);letter-spacing:.01em}
+.marca span{font:600 13px/1 var(--titulo);letter-spacing:.12em;text-transform:uppercase;color:var(--laranja)}
+h1{font:600 clamp(32px,4.4vw,48px)/1.1 var(--titulo);margin:0 0 16px;text-wrap:balance}
+h2{font:600 24px/1.2 var(--titulo);margin:0 0 12px}
+p{margin:0 0 14px;max-width:66ch}
+.entrada{font-size:21px;line-height:1.55}
+.duas{display:grid;grid-template-columns:minmax(0,6fr) minmax(0,5fr);gap:48px;align-items:start;margin-top:36px}
+@media (max-width:880px){.duas{grid-template-columns:minmax(0,1fr);gap:32px}}
+.percurso{list-style:none;margin:0;padding:0;counter-reset:passo;display:grid;gap:18px}
+.percurso li{counter-increment:passo;display:grid;grid-template-columns:44px minmax(0,1fr);gap:14px}
+.percurso li::before{content:counter(passo);font:600 20px/44px var(--titulo);width:44px;height:44px;text-align:center;border:2px solid var(--ouro);border-radius:50%;color:var(--laranja)}
+.percurso strong{display:block;font:600 19px/1.3 var(--titulo)}
+.ficha{background:var(--papel);border:1px solid var(--linha);border-radius:6px;padding:26px;display:grid;gap:18px}
+label.campo{display:grid;gap:6px;font:500 16px/1.3 var(--titulo)}
+input[type=text],input[type=number]{font:400 19px/1.3 var(--texto);color:var(--tinta);background:#fff;border:1px solid var(--tinta2);border-radius:4px;padding:11px 12px;width:100%}
+input[type=number]{max-width:120px}
+.marcar{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;align-items:start;font-size:17px;line-height:1.45}
+.marcar input{width:22px;height:22px;margin:2px 0 0;accent-color:var(--laranja)}
+details{border-top:1px solid var(--linha);padding-top:14px}
+summary{cursor:pointer;font:600 17px/1.3 var(--titulo)}
+details>div{display:grid;gap:14px;margin-top:14px}
+.botao{font:600 18px/1.2 var(--titulo);color:#fff;background:var(--laranja);border:0;border-radius:6px;padding:16px 26px;cursor:pointer}
+.botao:hover{background:#983f17}
+.botao[disabled]{background:#cdbfae;color:#fff;cursor:not-allowed}
+.botao.sec{background:transparent;color:var(--tinta);border:1px solid var(--tinta)}
+.botao.sec:hover{background:rgba(27,21,18,.07)}
+.botao:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--laranja-vivo);outline-offset:3px}
+.nota{font-size:17px;color:var(--tinta2)}
+.alerta{font:500 17px/1.4 var(--titulo);color:#8F2A19;margin:0}
+.acoes{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+
+/* prova */
+.barra-prova{display:flex;flex-wrap:wrap;gap:8px 28px;align-items:baseline;justify-content:space-between;border-bottom:2px solid var(--tinta);padding-bottom:14px;margin-bottom:30px}
+.barra-prova b{font:600 22px/1.2 var(--titulo)}
+.barra-prova span{font:500 18px/1.2 var(--titulo);font-variant-numeric:tabular-nums}
+.caso{border-left:4px solid var(--ouro);padding:4px 0 4px 18px;margin:0 0 28px}
+.caso small{display:block;font:600 13px/1.2 var(--titulo);letter-spacing:.12em;text-transform:uppercase;color:var(--laranja);margin-bottom:6px}
+.caso p{margin:0;max-width:74ch}
+.enunciado{font:600 26px/1.3 var(--titulo);margin:0 0 22px;max-width:30em;text-wrap:balance}
+.alternativas{display:grid;gap:12px;margin:0 0 30px;padding:0;border:0;min-width:0}
+.alternativas label{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px;align-items:center;background:var(--papel);border:1px solid var(--linha);border-radius:6px;padding:16px 18px;font-size:21px;cursor:pointer}
+.alternativas label:has(input:checked){border-color:var(--laranja);box-shadow:inset 0 0 0 1px var(--laranja)}
+.alternativas input{width:22px;height:22px;margin:0;accent-color:var(--laranja)}
+.confirmacao{margin-top:22px;padding:20px;border:1px solid var(--laranja);border-radius:6px;background:var(--papel)}
+
+/* encerramento */
+.arquivos{list-style:none;margin:18px 0 26px;padding:0;border-top:1px solid var(--linha)}
+.arquivos li{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--linha)}
+.arquivos span{min-width:0;overflow-wrap:anywhere}
+.arquivos small{display:block;color:var(--tinta2);font-size:16px}
+/* painel de demonstração da engine à direita: a prova cede o espaço */
+@media (min-width:1180px){html.pct-com-sinais .pagina{margin-right:310px;margin-left:auto}}
+.linha-campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+</style>
+</head>
+<body>
+<div class="pagina">
+  <header class="marca"><b>Proctoria</b><span>Versão 0.7 de demonstração</span></header>
+
+  <!-- INÍCIO -->
+  <main id="v-inicio">
+    <h1>Fiscalização de prova on-line</h1>
+    <p class="entrada">Esta página demonstra a engine em uma prova ilustrativa de quatro questões. O percurso reproduz a experiência do participante e, ao final, abre o painel de auditoria da sessão.</p>
+    <div class="duas">
+      <ol class="percurso">
+        <li><div><strong>Verificação do ambiente</strong>Câmera física, microfone com captação de voz, fotos de identidade, prova de vida, monitor único, tela inteira compartilhada e registro da área de trabalho.</div></li>
+        <li><div><strong>Calibragem do olhar</strong>Nove pontos na tela, em cerca de vinte segundos.</div></li>
+        <li><div><strong>Prova monitorada</strong>Cópia, colagem e atalhos bloqueados. Olhar, rosto e voz geram advertência na tela e, se a condição continuar, suspensão. Saída da janela ou da tela cheia suspende de imediato. Na terceira suspensão, a prova fica bloqueada até a liberação do administrador.</div></li>
+        <li><div><strong>Auditoria</strong>Registro completo da sessão, evidências de cada ocorrência, gravação integral da tela e da câmera e relatório formal de ocorrências.</div></li>
+      </ol>
+      <div class="ficha" id="lancador">
+        <h2>Janela exclusiva da prova</h2>
+        <p class="nota" style="margin:0">A prova abre em uma janela própria, maximizada e sem outras abas. Minimizar ou redimensionar essa janela suspende a prova. Feche antes as demais abas, os outros navegadores e os aplicativos alheios à prova.</p>
+        <div class="acoes"><button class="botao" type="button" id="abrir-janela">Abrir a prova em janela exclusiva</button></div>
+        <p class="alerta" id="aviso-janela" role="status" hidden></p>
+      </div>
+      <form class="ficha" id="ficha" autocomplete="off" hidden>
+        <label class="campo" for="nome">Nome do participante
+          <input type="text" id="nome" value="Participante de teste" maxlength="80" required>
+        </label>
+        <label class="marcar" for="consentimento"><input type="checkbox" id="consentimento">
+          <span>Autorizo a captação da imagem da câmera, do som do microfone e da tela inteira durante a prova, para fiscalização e auditoria. Nesta demonstração, a análise ocorre neste computador e nenhum dado é enviado: registro e gravações permanecem neste navegador até o download.</span>
+        </label>
+        <details>
+          <summary>Regras desta sessão</summary>
+          <div>
+            <div class="linha-campos">
+              <label class="campo" for="limite">Suspensões até o bloqueio da prova (0 para não bloquear)
+                <input type="number" id="limite" min="0" max="20" value="3">
+              </label>
+              <label class="campo" for="codigo">Código de liberação do administrador
+                <input type="text" id="codigo" value="2468" maxlength="20">
+              </label>
+            </div>
+            <div class="linha-campos">
+              <label class="campo" for="aviso-seg">Olhar ou rosto fora: segundos até a advertência
+                <input type="number" id="aviso-seg" min="0.5" max="30" step="0.5" value="2">
+              </label>
+              <label class="campo" for="susp-seg">Segundos adicionais até a suspensão
+                <input type="number" id="susp-seg" min="1" max="60" step="0.5" value="4">
+              </label>
+            </div>
+            <label class="campo" for="sem-pausas">Sem pausas: segundos de rosto fora da imagem que invalidam a prova (0 para desligar)
+              <input type="number" id="sem-pausas" min="0" max="120" step="1" value="10">
+            </label>
+            <label class="marcar" for="r-identidade"><input type="checkbox" id="r-identidade" checked><span>Registrar a identidade: foto do rosto antes da prova</span></label>
+            <label class="marcar" for="r-documento"><input type="checkbox" id="r-documento" checked><span>Exigir também a foto do documento de identificação</span></label>
+            <label class="marcar" for="r-vida"><input type="checkbox" id="r-vida" checked><span>Aplicar a prova de vida antes do início</span></label>
+            <label class="marcar" for="r-varredura"><input type="checkbox" id="r-varredura"><span>Registrar o ambiente com a câmera, em quatro imagens</span></label>
+            <label class="marcar" for="r-tela-inteira"><input type="checkbox" id="r-tela-inteira" checked><span>Exigir o compartilhamento da tela inteira, recusando janela ou aba</span></label>
+            <label class="marcar" for="r-gravar-tela"><input type="checkbox" id="r-gravar-tela" checked><span>Gravar a tela e o áudio durante toda a sessão</span></label>
+            <label class="marcar" for="r-gravar-camera"><input type="checkbox" id="r-gravar-camera" checked><span>Gravar a câmera durante toda a sessão</span></label>
+            <label class="marcar" for="r-sinais"><input type="checkbox" id="r-sinais" checked><span>Exibir o painel de demonstração, com as leituras e os alertas ao vivo (oculto ao participante em uso real)</span></label>
+          </div>
+        </details>
+        <div class="acoes"><button class="botao" type="submit" id="iniciar" disabled>Iniciar verificação</button></div>
+        <p class="alerta" id="aviso-inicio" role="status" hidden></p>
+        <p class="nota">Requisitos: Google Chrome ou Microsoft Edge em computador, com câmera e microfone. No macOS, o primeiro compartilhamento de tela pede autorização do navegador em Ajustes do Sistema, Privacidade e Segurança, Gravação de Tela.</p>
+      </form>
+    </div>
+    <details style="margin-top:44px">
+      <summary>Abrir um registro salvo no painel de auditoria</summary>
+      <div>
+        <label class="campo" for="abrir-registro">Selecione o arquivo de registro (.json) e, se disponíveis, as gravações (.webm) da mesma sessão
+          <input type="file" id="abrir-registro" accept=".json,.webm,application/json,video/webm" multiple>
+        </label>
+      </div>
+    </details>
+  </main>
+
+  <!-- PROVA -->
+  <main id="v-prova" hidden>
+    <div id="area-prova">
+      <div class="barra-prova"><b>Prova ilustrativa</b><span id="contador">Questão 1 de 4</span><span>Tempo decorrido: <span id="relogio">00:00</span></span></div>
+      <div class="caso"><small>Caso apenas ilustrativo</small><p>A Dorvane vende café por assinatura. Cada cliente paga R$ 80,00 por mês, a margem de contribuição corresponde a 50% da mensalidade, a permanência média é de 20 meses e o custo de aquisição por cliente (CAC) é de R$ 300,00.</p></div>
+      <p class="enunciado" id="enunciado"></p>
+      <fieldset class="alternativas" id="alternativas"></fieldset>
+      <div class="acoes">
+        <button class="botao sec" type="button" id="anterior">Anterior</button>
+        <button class="botao sec" type="button" id="proxima">Próxima</button>
+        <button class="botao" type="button" id="entregar">Entregar a prova</button>
+      </div>
+      <div id="ferramentas" style="margin-top:26px"></div>
+      <div class="confirmacao" id="confirmacao" hidden>
+        <p id="texto-confirmacao"></p>
+        <div class="acoes"><button class="botao" type="button" id="confirmar">Confirmar a entrega</button><button class="botao sec" type="button" id="voltar">Voltar à prova</button></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ENCERRAMENTO -->
+  <main id="v-fim" hidden>
+    <h1 id="titulo-fim">Sessão encerrada</h1>
+    <p class="entrada" id="texto-fim"></p>
+    <ul class="arquivos" id="arquivos"></ul>
+    <div class="acoes"><button class="botao" type="button" id="abrir-painel">Abrir o painel de auditoria</button><button class="botao sec" type="button" id="abrir-relatorio">Abrir o relatório formal</button><button class="botao sec" type="button" id="nova">Nova sessão</button></div>
+    <p class="nota" style="margin-top:18px">Nesta demonstração, os arquivos existem apenas neste navegador. Ao fechar ou recarregar a página sem o download, eles se perdem.</p>
+  </main>
+
+  <!-- AUDITORIA -->
+  <main id="v-revisao" hidden>
+    <div id="painel"></div>
+    <div class="acoes" style="margin-top:36px"><button class="botao sec" type="button" id="voltar-fim">Voltar aos arquivos da sessão</button><button class="botao sec" type="button" id="nova2">Nova sessão</button></div>
+  </main>
+</div>
+
+<script src="proctoria.js"></script>
+<script src="painel.js"></script>
+<script src="ferramentas.js"></script>
+<script src="relatorio.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var QUESTOES = [
+    { texto: "Qual é a margem de contribuição mensal por cliente?", alternativas: ["R$ 30,00", "R$ 40,00", "R$ 50,00", "R$ 80,00"] },
+    { texto: "Sem aplicar taxa de desconto, qual é o valor vitalício do cliente, obtido pela margem mensal multiplicada pela permanência média?", alternativas: ["R$ 400,00", "R$ 1.600,00", "R$ 800,00", "R$ 1.300,00"] },
+    { texto: "Qual é a relação entre o valor vitalício do cliente e o custo de aquisição?", alternativas: ["5,33", "3,75", "1,50", "2,67"] },
+    { texto: "Em quantos meses a margem de contribuição recupera o custo de aquisição?", alternativas: ["3,75 meses", "6 meses", "7,5 meses", "12 meses"] }
+  ];
+  var LETRAS = ["A", "B", "C", "D"];
+  var sessao = null, resultado = null, respostas = [], atual = 0, relogioId = null, inicioRelogio = 0, ferramentas = null;
+
+  function mostrar(vista) {
+    ["inicio", "prova", "fim", "revisao"].forEach(function (v) { $("v-" + v).hidden = v !== vista; });
+    window.scrollTo(0, 0);
+  }
+
+  var EXCLUSIVA = window.name === "proctoria-prova";
+  function mostrarFicha(aviso) {
+    $("lancador").hidden = true; $("ficha").hidden = false;
+    if (aviso) { $("aviso-inicio").textContent = aviso; $("aviso-inicio").hidden = false; }
+  }
+  if (EXCLUSIVA) {
+    try { window.moveTo(screen.availLeft || 0, screen.availTop || 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch (e) {}
+    mostrarFicha();
+  }
+  $("abrir-janela").addEventListener("click", function () {
+    var janela = null;
+    try {
+      janela = window.open(location.pathname + location.search, "proctoria-prova",
+        "popup=yes,width=" + screen.availWidth + ",height=" + screen.availHeight + ",left=" + (screen.availLeft || 0) + ",top=" + (screen.availTop || 0));
+    } catch (e) {}
+    if (!janela) { mostrarFicha("O navegador impediu a abertura da janela exclusiva. A prova prossegue nesta aba."); return; }
+    $("abrir-janela").disabled = true;
+    $("aviso-janela").textContent = "A prova foi aberta em uma janela exclusiva. Esta aba pode ser fechada.";
+    $("aviso-janela").hidden = false;
+  });
+
+  $("consentimento").addEventListener("change", function () { $("iniciar").disabled = !this.checked; });
+
+  $("ficha").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!$("consentimento").checked) return;
+    var nome = $("nome").value.trim() || "Participante de teste";
+    $("aviso-inicio").hidden = true;
+    respostas = QUESTOES.map(function () { return null; }); atual = 0;
+    $("iniciar").disabled = true;
+    var avisoSeg = Math.max(0.5, parseFloat($("aviso-seg").value) || 2), suspSeg = Math.max(1, parseFloat($("susp-seg").value) || 4);
+    var codigo = $("codigo").value.trim();
+    (codigo ? Proctoria.resumoSHA256(codigo) : Promise.resolve(null)).then(function (hash) { iniciarSessao(nome, hash, avisoSeg, suspSeg); });
+  });
+
+  function iniciarSessao(nome, hash, avisoSeg, suspSeg) {
+    sessao = Proctoria.criar({
+      aluno: { id: nome.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "participante", nome: nome },
+      prova: { id: "demonstracao-v01", titulo: "Prova ilustrativa da demonstração" },
+      areaDaProva: $("area-prova"),
+      regras: {
+        limiteSuspensoes: Math.max(0, parseInt($("limite").value, 10) || 0),
+        liberacaoHash: hash,
+        sinais: {
+          olhar_fora: { avisoSeg: avisoSeg, suspensaoSeg: suspSeg },
+          cabeca_fora: { avisoSeg: avisoSeg, suspensaoSeg: suspSeg },
+          rosto_ausente: { avisoSeg: avisoSeg }
+        },
+        exigirTelaInteiraCompartilhada: $("r-tela-inteira").checked,
+        gravarTela: $("r-gravar-tela").checked,
+        gravarCamera: $("r-gravar-camera").checked,
+        identidade: $("r-identidade").checked, identidadeDocumento: $("r-documento").checked,
+        provaDeVida: $("r-vida").checked ? "registrar" : "nao",
+        varreduraAmbiente: $("r-varredura").checked,
+        semPausasSeg: Math.max(0, parseInt($("sem-pausas").value, 10) || 0),
+        mostrarSinais: $("r-sinais").checked
+      },
+      aoEncerrar: function (res) { concluir(res); }
+    });
+    window.sessaoProctoria = sessao;
+    sessao.preparar().then(function () {
+      mostrar("prova");
+      ferramentas = ProctoriaFerramentas.montar($("ferramentas"), { aoUsar: function (nome) { sessao.registrar(nome === "calculadora" ? "Calculadora aberta" : "Rascunho aberto"); } });
+      desenharQuestao();
+      sessao.iniciarProva();
+      inicioRelogio = Date.now();
+      relogioId = setInterval(function () { $("relogio").textContent = ProctoriaPainel.relogio(Date.now() - inicioRelogio); }, 500);
+    }, function () {
+      sessao = null;
+      $("iniciar").disabled = !$("consentimento").checked;
+      $("aviso-inicio").textContent = "A verificação foi cancelada. Nenhuma prova foi iniciada.";
+      $("aviso-inicio").hidden = false;
+    });
+  }
+
+  function desenharQuestao() {
+    var q = QUESTOES[atual], caixa = $("alternativas");
+    $("contador").textContent = "Questão " + (atual + 1) + " de " + QUESTOES.length;
+    $("enunciado").textContent = q.texto;
+    caixa.textContent = "";
+    var legenda = document.createElement("legend"); legenda.textContent = "Alternativas da questão " + (atual + 1);
+    legenda.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)";
+    caixa.appendChild(legenda);
+    q.alternativas.forEach(function (texto, i) {
+      var id = "alt-" + atual + "-" + i, rotulo = document.createElement("label"), entrada = document.createElement("input"), span = document.createElement("span");
+      rotulo.htmlFor = id; entrada.type = "radio"; entrada.name = "alternativa"; entrada.id = id; entrada.checked = respostas[atual] === i;
+      span.textContent = LETRAS[i] + ") " + texto;
+      entrada.addEventListener("change", function () {
+        respostas[atual] = i;
+        sessao.registrar("Resposta assinalada", { questão: atual + 1, alternativa: LETRAS[i] });
+      });
+      rotulo.appendChild(entrada); rotulo.appendChild(span); caixa.appendChild(rotulo);
+    });
+    $("anterior").disabled = atual === 0;
+    $("proxima").disabled = atual === QUESTOES.length - 1;
+    $("confirmacao").hidden = true;
+    if (sessao) sessao.registrar("Questão exibida", { questão: atual + 1 });
+  }
+  $("anterior").addEventListener("click", function () { if (atual > 0) { atual--; desenharQuestao(); } });
+  $("proxima").addEventListener("click", function () { if (atual < QUESTOES.length - 1) { atual++; desenharQuestao(); } });
+  $("entregar").addEventListener("click", function () {
+    var n = respostas.filter(function (r) { return r !== null; }).length;
+    $("texto-confirmacao").textContent = "Questões respondidas: " + n + " de " + QUESTOES.length + ". Depois da entrega, as respostas não podem ser alteradas.";
+    $("confirmacao").hidden = false;
+    $("confirmar").focus();
+  });
+  $("voltar").addEventListener("click", function () { $("confirmacao").hidden = true; });
+  $("confirmar").addEventListener("click", function () {
+    $("confirmar").disabled = true;
+    sessao.encerrar("entregue").then(concluir);
+  });
+
+  function concluir(res) {
+    clearInterval(relogioId);
+    $("confirmar").disabled = false;
+    resultado = res;
+    res.registro.respostas = respostas.map(function (r, i) { return { questão: i + 1, alternativa: r === null ? null : LETRAS[r] }; });
+    if (ferramentas) res.registro.rascunho = ferramentas.rascunho();
+    var limite = res.registro.situacao !== "entregue";
+    $("titulo-fim").textContent = { encerrada_durante_bloqueio: "Prova encerrada durante o bloqueio", invalidada: "Prova invalidada por ausência da câmera" }[res.registro.situacao] || "Prova entregue";
+    var r = res.registro.resumo;
+    $("texto-fim").textContent = (limite ? "As respostas registradas até o encerramento foram preservadas. " : "") +
+      "Duração: " + ProctoriaPainel.relogio(r.duracaoProvaMs) + ". Advertências: " + r.advertencias + ". Suspensões: " + r.suspensoes + ". Ações bloqueadas: " + r.acoesBloqueadas + ".";
+    var lista = $("arquivos"); lista.textContent = "";
+    var json = new Blob([JSON.stringify(res.registro)], { type: "application/json" });
+    var itens = [{ nome: res.nomeBase + "_registro.json", blob: json, rotulo: "Registro da sessão", nota: "Ocorrências, evidências, telemetria e respostas" }];
+    res.arquivos.forEach(function (a) {
+      itens.push({ nome: a.nome, blob: a.blob, rotulo: a.tipo === "tela" ? "Gravação da tela com áudio" : "Gravação da câmera", nota: a.nome });
+    });
+    itens.forEach(function (it) {
+      var li = document.createElement("li"), txt = document.createElement("span"), peq = document.createElement("small"), b = document.createElement("button");
+      txt.textContent = it.rotulo; peq.textContent = it.nota + " · " + ProctoriaPainel.tamanho(it.blob.size); txt.appendChild(peq);
+      b.className = "botao sec"; b.type = "button"; b.textContent = "Baixar";
+      b.addEventListener("click", function () { ProctoriaPainel.baixar(it.nome, it.blob); });
+      li.appendChild(txt); li.appendChild(b); lista.appendChild(li);
+    });
+    mostrar("fim");
+  }
+
+  $("abrir-painel").addEventListener("click", function () {
+    ProctoriaPainel.montar($("painel"), resultado.registro, resultado.arquivos, { nomeBase: resultado.nomeBase });
+    $("voltar-fim").hidden = false;
+    mostrar("revisao");
+  });
+  $("abrir-relatorio").addEventListener("click", function () { ProctoriaRelatorio.abrir(resultado.registro); });
+  $("voltar-fim").addEventListener("click", function () { mostrar("fim"); });
+  $("nova").addEventListener("click", function () { location.reload(); });
+  $("nova2").addEventListener("click", function () { location.reload(); });
+
+  $("abrir-registro").addEventListener("change", function () {
+    var arquivos = Array.prototype.slice.call(this.files);
+    var json = arquivos.filter(function (f) { return /\.json$/i.test(f.name); })[0];
+    if (!json) { $("aviso-inicio").textContent = "Selecione o arquivo de registro (.json) da sessão."; $("aviso-inicio").hidden = false; return; }
+    json.text().then(function (texto) {
+      var registro = JSON.parse(texto);
+      if (registro.formato !== "proctoria-registro") throw new Error("formato");
+      var videos = arquivos.filter(function (f) { return /\.webm$/i.test(f.name); }).map(function (f) { return { nome: f.name, blob: f }; });
+      ProctoriaPainel.montar($("painel"), registro, videos, { nomeBase: json.name.replace(/_registro\.json$/i, "").replace(/\.json$/i, "") });
+      $("voltar-fim").hidden = true;
+      mostrar("revisao");
+    }).catch(function () {
+      $("aviso-inicio").textContent = "O arquivo selecionado não corresponde a um registro da Proctoria.";
+      $("aviso-inicio").hidden = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

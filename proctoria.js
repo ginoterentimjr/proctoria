@@ -1,8 +1,8 @@
-/*! Proctoria 0.7.0 | engine de fiscalização de prova on-line para navegador */
+/*! Proctoria 0.8.0 | engine de fiscalização de prova on-line para navegador */
 (function (global) {
   "use strict";
 
-  var VERSAO = "0.7.0";
+  var VERSAO = "0.8.0";
 
   var RECURSOS_PADRAO = {
     visao: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21",
@@ -48,7 +48,8 @@
     gravarTela: true,
     gravarCamera: true,
     bloquearAcoes: true,
-    mostrarSinais: false
+    mostrarSinais: false,         // painel de leituras e alertas ao vivo, para demonstração e piloto
+    mostrarOlhar: false           // ponto estimado do olhar sobre a tela
   };
 
   var ROTULOS = {
@@ -1258,7 +1259,7 @@
     if (r.gravarCamera) this._iniciarGravacao("camera");
     this._armarVigilancia();
     if (r.bloquearAcoes) this._armarBloqueios();
-    if (r.mostrarSinais) this._montarSinais();
+    if (r.mostrarSinais || r.mostrarOlhar) this._montarSinais();
 
     this._temporizadores.push(setInterval(function () { eu._amostrarTelemetria(); }, Math.max(0.25, r.telemetriaSeg) * 1000));
     if (r.capturaPeriodicaSeg > 0) {
@@ -1769,6 +1770,7 @@
     var eu = this;
     this._sinaisVideo = el("video", { autoplay: "", playsinline: "" });
     this._sinaisVideo.muted = true; this._sinaisVideo.srcObject = this._camStream;
+    var painel = !!this.regras.mostrarSinais, ponto = !!(this.regras.mostrarOlhar || this.regras.mostrarSinais);
     var dl = el("dl");
     var campos = {};
     [["rostos", "Rostos"], ["cabeca", "Cabeça"], ["olhar", "Olhar"], ["voz", "Voz"], ["foco", "Foco"], ["conta", "Suspensões"]].forEach(function (c) {
@@ -1781,10 +1783,18 @@
     ]);
     this._mira = el("div", { class: "pct-mira", "aria-hidden": "true" });
     this._mira.hidden = true;
-    document.body.appendChild(this._sinaisCaixa); document.body.appendChild(this._mira);
-    document.documentElement.classList.add("pct-com-sinais");
+    if (painel) { document.body.appendChild(this._sinaisCaixa); document.documentElement.classList.add("pct-com-sinais"); }
+    else { this._sinaisVideo.srcObject = null; this._sinaisCaixa = null; this._feed = null; }
+    if (ponto) document.body.appendChild(this._mira);
     this._temporizadores.push(setInterval(function () {
       var s = eu._sinais, v = eu._voz || {}, limite = eu.regras.limiteSuspensoes;
+      if (ponto) {
+        if (s.gx !== undefined && s.rostos && !eu._suspensao) {
+          eu._mira.hidden = false;
+          eu._mira.style.left = (limitar(s.gx, 0, 1) * 100) + "%"; eu._mira.style.top = (limitar(s.gy, 0, 1) * 100) + "%";
+        } else eu._mira.hidden = true;
+      }
+      if (!painel) return;
       campos.rostos.textContent = String(s.rostos || 0);
       campos.cabeca.textContent = s.rostos ? Math.round(s.dYaw || 0) + "° / " + Math.round(s.dPitch || 0) + "°" + (s.cabecaFora ? " fora" : "") : "sem leitura";
       campos.olhar.textContent = s.gx === undefined ? (eu._calib.modelo ? "sem leitura" : "modo reduzido")
@@ -1792,10 +1802,6 @@
       campos.voz.textContent = v.piso === null || v.piso === undefined ? "sem leitura" : Math.round(v.nivel - v.piso) + " dB" + (v.ativa ? " ativa" : "");
       campos.foco.textContent = document.hasFocus() ? "na prova" : "fora";
       campos.conta.textContent = eu._ciclo + (limite > 0 ? " de " + limite : "");
-      if (s.gx !== undefined && s.rostos && !eu._suspensao) {
-        eu._mira.hidden = false;
-        eu._mira.style.left = (limitar(s.gx, 0, 1) * 100) + "%"; eu._mira.style.top = (limitar(s.gy, 0, 1) * 100) + "%";
-      } else eu._mira.hidden = true;
     }, 150));
   };
 

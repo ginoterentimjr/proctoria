@@ -1,4 +1,4 @@
-/*! Proctoria 0.7.0 | painel de auditoria da sessão */
+/*! Proctoria 0.8.0 | painel de auditoria da sessão */
 (function (global) {
   "use strict";
 

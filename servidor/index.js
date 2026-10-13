@@ -1,9 +1,9 @@
-/*! Proctoria 0.7.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
+/*! Proctoria 0.8.0 | servidor: Cloudflare Worker, banco em Durable Object (SQLite) e arquivos em R2 */
 import { DurableObject } from "cloudflare:workers";
 import { configuracao as configSEB, plist as plistSEB, chaveDeConfiguracao, hashDaPagina } from "./seb.mjs";
 import { ciclo as cicloDe, diaDe, usoNovo, estimar } from "./custos.mjs";
 
-const VERSAO = "0.7.0";
+const VERSAO = "0.8.0";
 const DIA = 86400000;
 const CABECALHO_JSON = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const json = (dados, status = 200, extra) => new Response(JSON.stringify(dados), { status, headers: { ...CABECALHO_JSON, ...(extra || {}) } });
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS avisos (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TE
 
 const REGRAS_PROVA = {
   limiteSuspensoes: 3, identidade: true, identidadeDocumento: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10, ausenciaSeg: 10,
-  navegador: "comum", sebConferirChave: true, sebChaveManual: "",
+  navegador: "comum", sebConferirChave: true, sebChaveManual: "", mostrarOlhar: false, mostrarSinais: false,
   gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true,
   avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10
 };
@@ -345,7 +345,7 @@ export class Banco extends DurableObject {
     return {
       limiteSuspensoes: r.limiteSuspensoes, identidade: !!r.identidade, identidadeDocumento: r.identidadeDocumento !== false, provaDeVida: r.provaDeVida, varreduraAmbiente: !!r.varreduraAmbiente,
       semPausasSeg: r.semPausasSeg || 0, gravarTela: !!r.gravarTela, gravarCamera: !!r.gravarCamera, exigirTelaInteiraCompartilhada: !!r.exigirTelaInteiraCompartilhada,
-      trechoGravacaoMs: 10000, mostrarSinais: false,
+      trechoGravacaoMs: 10000, mostrarSinais: !!r.mostrarSinais, mostrarOlhar: !!r.mostrarOlhar,
       sinais: { olhar_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, cabeca_fora: { avisoSeg: r.avisoSeg, suspensaoSeg: r.suspensaoSeg }, rosto_ausente: { avisoSeg: Math.min(r.avisoSeg, Math.max(0.5, (r.ausenciaSeg || 10) - 1)), suspensaoSeg: Math.max(1, (r.ausenciaSeg || 10) - r.avisoSeg) } }   // sem pausas desligado: a tolerância leva à suspensão
     };
   }
@@ -775,6 +775,7 @@ export class Banco extends DurableObject {
         provaDeVida: ["obrigatoria", "registrar", "nao"].indexOf(r.provaDeVida) >= 0 ? r.provaDeVida : "registrar",
         varreduraAmbiente: !!r.varreduraAmbiente, semPausasSeg: num(r.semPausasSeg, 0, 300, 10),
         navegador: ["comum", "seb", "ambos"].indexOf(r.navegador) >= 0 ? r.navegador : "comum", sebConferirChave: r.sebConferirChave !== false,
+        mostrarOlhar: !!r.mostrarOlhar, mostrarSinais: !!r.mostrarSinais,
         sebChaveManual: /^[a-f0-9]{64}$/.test(String(r.sebChaveManual || "").trim().toLowerCase()) ? String(r.sebChaveManual).trim().toLowerCase() : "",
         gravarTela: !!r.gravarTela, gravarCamera: !!r.gravarCamera,
         exigirTelaInteiraCompartilhada: r.exigirTelaInteiraCompartilhada !== false, avisoSeg: num(r.avisoSeg, 0.5, 30, 2), suspensaoSeg: num(r.suspensaoSeg, 1, 60, 4),

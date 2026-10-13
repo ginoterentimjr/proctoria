@@ -346,7 +346,7 @@ code.chave{font:500 16px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
   function telaProva(id) {
     menu("provas"); limparTemporizadores();
     (id ? api("GET", "/api/admin/provas/" + id) : Promise.resolve({ titulo: "", duracaoMin: 60, instrucoes: "", consulta: "nenhuma", textoConsulta: "", ordemAleatoria: true, embaralharAlternativas: true, inicioEm: null, fimEm: null,
-      regras: { limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10, ausenciaSeg: 10, identidadeDocumento: true, navegador: "comum", sebConferirChave: true, sebChaveManual: "", gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true, avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10 } })).then(function (p) {
+      regras: { limiteSuspensoes: 3, identidade: true, provaDeVida: "registrar", varreduraAmbiente: false, semPausasSeg: 10, ausenciaSeg: 10, identidadeDocumento: true, mostrarOlhar: false, mostrarSinais: false, navegador: "comum", sebConferirChave: true, sebChaveManual: "", gravarTela: true, gravarCamera: true, exigirTelaInteiraCompartilhada: true, avisoSeg: 2, suspensaoSeg: 4, calculadora: true, rascunho: true, quedaMaximaMin: 10 } })).then(function (p) {
       var r = p.regras, local = function (iso) { if (!iso) return ""; var d = new Date(iso); return d.getFullYear() + "-" + dois(d.getMonth() + 1) + "-" + dois(d.getDate()) + "T" + dois(d.getHours()) + ":" + dois(d.getMinutes()); };
       var e = {
         titulo: h("input", { type: "text", value: p.titulo, maxlength: "200", required: true }), duracao: h("input", { type: "number", min: "1", max: "600", value: p.duracaoMin }),
@@ -357,7 +357,8 @@ code.chave{font:500 16px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
         limite: h("input", { type: "number", min: "0", max: "20", value: r.limiteSuspensoes }), aviso: h("input", { type: "number", min: "0.5", max: "30", step: "0.5", value: r.avisoSeg }), susp: h("input", { type: "number", min: "1", max: "60", step: "0.5", value: r.suspensaoSeg }),
         ausencia: h("input", { type: "number", min: "3", max: "300", value: r.semPausasSeg > 0 ? r.semPausasSeg : (r.ausenciaSeg || 10) }),
         ausenciaAcao: h("select", null, [h("option", { value: "invalidar", text: "Invalidar a prova (prova sem pausas)" }), h("option", { value: "suspender", text: "Suspender a prova" })]),
-        documento: h("input", { type: "checkbox", checked: r.identidadeDocumento !== false }), queda: h("input", { type: "number", min: "1", max: "120", value: r.quedaMaximaMin }),
+        documento: h("input", { type: "checkbox", checked: r.identidadeDocumento !== false }),
+        olharVisivel: h("input", { type: "checkbox", checked: !!r.mostrarOlhar }), sinaisVisiveis: h("input", { type: "checkbox", checked: !!r.mostrarSinais }), queda: h("input", { type: "number", min: "1", max: "120", value: r.quedaMaximaMin }),
         vida: h("select", null, [h("option", { value: "registrar", text: "Aplicar; se não concluída, prosseguir com registro" }), h("option", { value: "obrigatoria", text: "Obrigatória para iniciar" }), h("option", { value: "nao", text: "Não aplicar" })]),
         identidade: h("input", { type: "checkbox", checked: r.identidade }), varredura: h("input", { type: "checkbox", checked: r.varreduraAmbiente }),
         tela: h("input", { type: "checkbox", checked: r.gravarTela }), camera: h("input", { type: "checkbox", checked: r.gravarCamera }), inteira: h("input", { type: "checkbox", checked: r.exigirTelaInteiraCompartilhada }),
@@ -398,7 +399,11 @@ code.chave{font:500 16px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
           marcar("Registrar a identidade: foto do rosto antes da prova", e.identidade), marcar("Exigir também a foto do documento de identificação", e.documento), marcar("Varredura do ambiente: quatro imagens com a câmera antes do início", e.varredura)]),
         h("div", { class: "grupo" }, [h("h2", { text: "Tela e gravações" }),
           marcar("Exigir o compartilhamento da tela inteira", e.inteira), marcar("Gravar a tela e o áudio durante toda a sessão", e.tela), marcar("Gravar a câmera durante toda a sessão", e.camera)]),
-        h("div", { class: "grupo" }, [h("h2", { text: "Recursos na tela da prova" }), marcar("Calculadora", e.calc), marcar("Rascunho", e.rasc)])
+        h("div", { class: "grupo" }, [h("h2", { text: "Recursos na tela da prova" }), marcar("Calculadora", e.calc), marcar("Rascunho", e.rasc)]),
+        h("div", { class: "grupo" }, [h("h2", { text: "Exibição da fiscalização ao participante" }),
+          marcar("Mostrar na tela o ponto estimado do olhar", e.olharVisivel),
+          marcar("Mostrar o painel de leituras ao vivo: rosto, cabeça, olhar, voz e alertas", e.sinaisVisiveis),
+          h("p", { class: "nota", text: "Indicado para piloto e teste. Em prova que vale nota, o recomendado é manter as duas opções desligadas: ver o ponto e as leituras permite ao participante aprender os limites da detecção. A alteração vale para as sessões abertas depois de salvar." })])
       ]);
       var form = h("form", null, [].concat(
         id ? cabecalhoProva(id, p.titulo, "regras") : [h("div", { class: "topo" }, [h("div", null, [h("h1", { text: "Nova prova" }), h("p", { class: "linha-fina", text: "Defina as regras; as questões e os participantes vêm em seguida." })]),
@@ -410,7 +415,7 @@ code.chave{font:500 16px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f
         ev.preventDefault(); aviso.className = "nota"; aviso.textContent = "Salvando.";
         var dados = { titulo: e.titulo.value.trim(), duracaoMin: Number(e.duracao.value), instrucoes: e.instrucoes.value, consulta: e.consulta.value, textoConsulta: e.texto.value, ordemAleatoria: e.ordem.checked, embaralharAlternativas: e.embaralhar.checked,
           inicioEm: e.inicio.value ? new Date(e.inicio.value).toISOString() : null, fimEm: e.fim.value ? new Date(e.fim.value).toISOString() : null,
-          regras: { limiteSuspensoes: Number(e.limite.value), avisoSeg: Number(e.aviso.value), suspensaoSeg: Number(e.susp.value), semPausasSeg: e.ausenciaAcao.value === "invalidar" ? Number(e.ausencia.value) : 0, ausenciaSeg: Number(e.ausencia.value), identidadeDocumento: e.documento.checked, navegador: e.navegador.value, sebConferirChave: e.sebConferir.checked, sebChaveManual: e.sebChave.value.trim(), quedaMaximaMin: Number(e.queda.value), provaDeVida: e.vida.value,
+          regras: { limiteSuspensoes: Number(e.limite.value), avisoSeg: Number(e.aviso.value), suspensaoSeg: Number(e.susp.value), semPausasSeg: e.ausenciaAcao.value === "invalidar" ? Number(e.ausencia.value) : 0, ausenciaSeg: Number(e.ausencia.value), identidadeDocumento: e.documento.checked, mostrarOlhar: e.olharVisivel.checked, mostrarSinais: e.sinaisVisiveis.checked, navegador: e.navegador.value, sebConferirChave: e.sebConferir.checked, sebChaveManual: e.sebChave.value.trim(), quedaMaximaMin: Number(e.queda.value), provaDeVida: e.vida.value,
             identidade: e.identidade.checked, varreduraAmbiente: e.varredura.checked, gravarTela: e.tela.checked, gravarCamera: e.camera.checked, exigirTelaInteiraCompartilhada: e.inteira.checked, calculadora: e.calc.checked, rascunho: e.rasc.checked } };
         (id ? api("PUT", "/api/admin/provas/" + id, dados) : api("POST", "/api/admin/provas", dados)).then(function (salva) {
           var arquivo = e.pdf.files && e.pdf.files[0];
